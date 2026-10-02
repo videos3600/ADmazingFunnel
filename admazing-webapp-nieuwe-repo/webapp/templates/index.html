@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADmazing — Upload je beelden. Krijg direct je advertentie.</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="logo">AD<span class="accent">mazing</span></div>
+    <div class="topbar-tag">interne testversie — fase 1</div>
+  </div>
+</header>
+
+<main class="wrap hero">
+  <section class="hero-copy">
+    <h1>Upload je beelden.<br>Krijg direct je advertentie.</h1>
+    <p class="lead">ADmazing maakt automatisch een promotievideo van jouw foto's en clips — inclusief montage, tekst, muziek en call-to-action.</p>
+    <p class="fine">Geen montage-ervaring nodig. Geen ingewikkelde software.</p>
+
+    <div class="preview-mock" aria-hidden="true">
+      <div class="preview-panel raw">
+        <span class="preview-label">RAW FOOTAGE</span>
+        <div class="preview-bars">
+          <div></div><div></div><div></div>
+        </div>
+      </div>
+      <div class="preview-arrow">→</div>
+      <div class="preview-panel done">
+        <span class="preview-label accent">ADMAZING</span>
+        <div class="preview-frame">
+          <div class="preview-caption">Jouw bedrijf<br><b>Bestel vandaag</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="generator-card" id="generator-card">
+
+    <form id="generate-form" class="generator-form">
+      <div class="field">
+        <label for="business_name">Bedrijfsnaam</label>
+        <input type="text" id="business_name" name="business_name" placeholder="bijv. Suriname Kitchen" required>
+      </div>
+
+      <div class="field">
+        <label for="offer">Aanbieding / boodschap</label>
+        <input type="text" id="offer" name="offer" placeholder="bijv. Surinaamse smaken in hartje Almere">
+      </div>
+
+      <div class="field">
+        <label for="cta_text">Wat moet de klant doen?</label>
+        <input type="text" id="cta_text" name="cta_text" placeholder="bijv. Bestel vandaag">
+      </div>
+
+      <div class="field">
+        <label>Sleep hier je foto's en video's</label>
+        <div class="dropzone" id="dropzone" tabindex="0">
+          <div class="dropzone-hint">Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span></div>
+          <ul class="file-list" id="file-list"></ul>
+        </div>
+        <input type="file" id="footage-input" name="footage" multiple accept="video/*,image/*" hidden>
+      </div>
+
+      <div class="field">
+        <label for="logo-input">Logo (optioneel)</label>
+        <input type="file" id="logo-input" name="logo" accept="image/png,image/jpeg">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="template">Template</label>
+          <select id="template" name="template">
+            {% for t in templates %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Formaat</label>
+          <div class="format-choices" role="radiogroup" aria-label="Video formaat">
+            {% for f in formats %}
+            <label class="format-choice">
+              <input type="radio" name="format" value="{{ f }}" {% if loop.first %}checked{% endif %}>
+              <span class="format-icon format-icon-{{ f|replace(':','-') }}" aria-hidden="true"></span>
+              <span class="format-text">{{ f }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field">
+          <label for="music">Muziek</label>
+          <select id="music" name="music">
+            {% for genre_label, tracks in music_groups %}
+            <optgroup label="{{ genre_label }}">
+              {% for key, track_label in tracks %}
+              <option value="{{ key }}">{{ track_label }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <button type="submit" class="generate-btn">Genereer mijn advertentie →</button>
+      <p class="form-error" id="form-error"></p>
+    </form>
+
+    <div class="progress-view" id="progress-view" hidden>
+      <h2>ADmazing maakt je advertentie…</h2>
+      <div class="progress-bar" aria-hidden="true"><div class="progress-bar-fill"></div></div>
+      <ul class="progress-steps" id="progress-steps">
+        <li data-step="0">Beeldmateriaal analyseren</li>
+        <li data-step="1">Beste momenten selecteren</li>
+        <li data-step="2">Advertentietekst schrijven</li>
+        <li data-step="3">Muziek kiezen</li>
+        <li data-step="4">Montage samenstellen</li>
+        <li data-step="5">Video renderen…</li>
+      </ul>
+    </div>
+
+    <div class="result-view" id="result-view" hidden>
+      <h2>Je advertentie is klaar.</h2>
+      <video id="result-video" controls playsinline></video>
+      <div class="result-actions">
+        <a id="download-link" class="generate-btn" download>Download MP4</a>
+        <button type="button" class="secondary-btn" id="make-another">Nieuwe advertentie maken</button>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

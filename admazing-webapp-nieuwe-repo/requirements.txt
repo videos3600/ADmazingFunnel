@@ -1,0 +1,6 @@
+flask==3.0.3
+werkzeug==3.0.4
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+pillow==10.4.0
+gunicorn==22.0.0
