@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from edl.schema import EDL
 
-ACCENT = (255, 90, 46, 255)   # 0xFF5A2E — ADmazing accent
+ACCENT = (255, 0, 153, 255)   # 0xFF0099 — ADmazing brand pink
 INK = (10, 10, 13, 255)       # 0x0A0A0D — near-black
 WHITE = (255, 255, 255, 255)
 
