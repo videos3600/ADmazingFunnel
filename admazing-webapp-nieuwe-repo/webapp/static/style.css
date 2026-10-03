@@ -4,8 +4,11 @@
   --panel-border: #2a2a33;
   --text: #f5f5f7;
   --text-dim: #a3a3ad;
-  --accent: #ff5a2e;
-  --accent-dim: #ff5a2e33;
+  /* ADmazing brand colors — matches the logo's cyan-to-pink diagonal. */
+  --accent: #ff0099;
+  --accent-2: #06defc;
+  --accent-dim: #ff009933;
+  --accent-gradient: linear-gradient(135deg, #06defc, #ff0099);
   --radius: 22px;
   --radius-sm: 12px;
 }
@@ -27,7 +30,13 @@ html, body {
   padding: 0 24px;
 }
 
-.accent { color: var(--accent); }
+/* Logo wordmark + any "brand moment" text — same gradient as the logo mark. */
+.accent {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 /* ---- topbar ---- */
 
@@ -121,7 +130,7 @@ html, body {
   color: var(--text-dim);
   font-weight: 700;
 }
-.preview-label.accent { color: var(--accent); }
+/* .preview-label already picks up the .accent gradient above — no override needed. */
 
 .preview-bars {
   display: flex;
@@ -142,7 +151,7 @@ html, body {
 .preview-frame {
   flex: 1;
   border-radius: var(--radius-sm);
-  background: linear-gradient(160deg, #2a1710, #120a08);
+  background: linear-gradient(160deg, #1f0a18, #08141a);
   display: flex;
   align-items: flex-end;
   padding: 14px;
@@ -325,8 +334,8 @@ input[type="file"] {
 /* ---- buttons ---- */
 
 .generate-btn {
-  background: var(--accent);
-  color: #0a0a0d;
+  background: var(--accent-gradient);
+  color: #ffffff;
   border: none;
   border-radius: var(--radius-sm);
   padding: 16px 20px;
@@ -388,7 +397,7 @@ input[type="file"] {
   bottom: -1px;
   width: 40%;
   border-radius: 999px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent-2), var(--accent), transparent);
   animation: progress-sweep 1.3s ease-in-out infinite;
 }
 @keyframes progress-sweep {
