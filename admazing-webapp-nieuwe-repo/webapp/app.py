@@ -25,7 +25,8 @@ from werkzeug.utils import secure_filename
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from edl.simple_generator import build_simple_edl  # noqa: E402
+from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
+from render.ffmpeg_utils import probe_duration  # noqa: E402
 from render.pipeline import render_edl, FORMAT_RESOLUTIONS  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
 
@@ -142,13 +143,37 @@ def generate():
         # them) — the simple generator plays clips in that order, since
         # there's no real shot-classification yet (fase 2).
         clip_filenames: list[str] = []
+        # Every clip gets assigned a slot of at least MIN_CLIP_DURATION
+        # seconds (see edl/simple_generator.py) — a clip shorter than that
+        # in real life can't fill its slot, which used to only surface much
+        # later as a confusing ffmpeg crash (or a silently too-short ad) deep
+        # in the render. Reject it up front instead, with a message the
+        # uploader can actually act on.
+        too_short: list[str] = []
         for i, f in enumerate(footage_files):
             ext = Path(secure_filename(f.filename)).suffix.lower()
             if ext not in ALLOWED_VIDEO_EXT and ext not in ALLOWED_IMAGE_EXT:
                 return jsonify(ok=False, error=f"Bestandstype '{ext}' wordt nog niet ondersteund."), 400
             fname = f"clip_{i:02d}{ext}"
             f.save(job_dir / fname)
+            if ext in ALLOWED_VIDEO_EXT:
+                try:
+                    clip_duration = probe_duration(job_dir / fname)
+                except Exception:
+                    clip_duration = None  # unreadable/corrupt file — let the render step report it
+                if clip_duration is not None and clip_duration < MIN_CLIP_DURATION:
+                    too_short.append(f"'{f.filename}' ({clip_duration:.1f}s)")
             clip_filenames.append(fname)
+
+        if too_short:
+            return jsonify(
+                ok=False,
+                error=(
+                    f"Deze video('s) zijn korter dan de minimale {MIN_CLIP_DURATION:.0f} seconde per clip: "
+                    + ", ".join(too_short)
+                    + ". Upload langere beelden (of knip minder clips samen)."
+                ),
+            ), 400
 
         # Optional logo
         logo_filename = ""
