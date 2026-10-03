@@ -178,8 +178,8 @@ class Renderer:
             if cue.kind == "cta":
                 y = f"h-(h*0.16)"
                 fontsize = max(min(int(h * 0.045), width_capped_size), 22)
-                box_color = "0xFF5A2E@0.92"
-                font_color = "0x0A0A0D" if edl.text_style == "boxed" else "0xFF5A2E"
+                box_color = "0xFF0099@0.92"
+                font_color = "0x0A0A0D" if edl.text_style == "boxed" else "0xFF0099"
             else:
                 y = f"h-(h*0.24)"
                 fontsize = max(min(int(h * 0.05), width_capped_size), 22)
