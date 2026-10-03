@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from edl.schema import EDL
-from render.ffmpeg_utils import run
+from render.ffmpeg_utils import probe_duration, run
 
 TRANSITION = "radial"
 MAX_OVERLAP = 0.4  # seconds
@@ -28,7 +28,16 @@ def assemble(renderer, edl: EDL, resolution: tuple[int, int], ken_burns: bool = 
     if len(segments) == 1:
         return segments[0]
 
-    durations = [clip.duration for clip in edl.clips]
+    # The REAL length of each trimmed segment, not the EDL's requested
+    # clip.duration — _trim_and_normalize_clip's "-t" caps at the source
+    # clip's own length, so a short upload (a quick phone snippet shorter
+    # than its assigned ~1-3s slot) yields a shorter segment than planned.
+    # Using the planned durations here made the crossfade offsets assume
+    # footage that didn't exist, which could collapse the whole assembled
+    # video down to a near-zero actual length (and crash the music step
+    # downstream, which can't fade out over a negative/near-zero clip).
+    durations = [probe_duration(seg) for seg in segments]
+    durations = [d if d > 0 else 0.1 for d in durations]  # never divide/offset by zero
     # Keep the overlap sane for short clips — never eat more than 40% of the
     # shortest neighbour, so a 1s clip doesn't vanish into its own transition.
     overlap = min(MAX_OVERLAP, min(durations) * 0.4)
