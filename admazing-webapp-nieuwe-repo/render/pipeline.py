@@ -63,6 +63,18 @@ class Renderer:
         if not src_path.exists():
             raise FileNotFoundError(f"EDL references clip '{source}' but it is not in {self.assets_dir}")
 
+        # A still photo (common upload — not every customer has video
+        # footage) is a single frame to ffmpeg. Without "-loop 1" it reads
+        # that one frame and hits EOF immediately, so the segment comes out
+        # a fraction of a second long no matter what "-t duration" asks for
+        # — the photo "flashes" rather than holding its assigned slot. "-t"
+        # only ever caps a stream's length, it can't pad a shorter one, so
+        # the fix has to be on the input side: tell ffmpeg to treat the
+        # image as a (functionally) infinite source to cut "duration"
+        # seconds from, same as any video clip.
+        is_image = src_path.suffix.lower() in {".png", ".jpg", ".jpeg"}
+        input_args = ["-loop", "1", "-framerate", "30", "-i", str(src_path)] if is_image else ["-i", str(src_path)]
+
         out_path = self.work_dir / f"seg_{index:02d}.mp4"
         if ken_burns:
             # Slow continuous push-in (text_style="punch" only) — a static
@@ -83,7 +95,7 @@ class Renderer:
             )
         _run([
             "ffmpeg", "-y",
-            "-i", str(src_path),
+            *input_args,
             "-t", f"{duration:.3f}",
             "-vf", vf,
             "-an",
@@ -228,11 +240,23 @@ class Renderer:
         total_duration = duration if duration is not None else edl.duration
         if edl.music and edl.music.file and (self.assets_dir / edl.music.file).exists():
             music_path = self.assets_dir / edl.music.file
+            # Clamp the fade-out to the clip's own length: a clip shorter
+            # than the usual 0.6s fade (e.g. a quick test render with very
+            # short source clips) previously produced a negative afade
+            # 'st', which ffmpeg rejects outright ("Numerical result out
+            # of range") and fails the whole render.
+            safe_duration = max(total_duration, 0.0)
+            fade_dur = min(0.6, safe_duration / 2)
+            fade_start = max(0.0, safe_duration - fade_dur)
+            if fade_dur > 0:
+                audio_filter = f"[1:a]volume=0.55,afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[a]"
+            else:
+                audio_filter = "[1:a]volume=0.55[a]"
             _run([
                 "ffmpeg", "-y",
                 "-i", str(video_path),
                 "-stream_loop", "-1", "-i", str(music_path),
-                "-filter_complex", "[1:a]volume=0.55,afade=t=out:st=" + f"{total_duration - 0.6:.2f}:d=0.6[a]",
+                "-filter_complex", audio_filter,
                 "-map", "0:v", "-map", "[a]",
                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                 "-shortest",
