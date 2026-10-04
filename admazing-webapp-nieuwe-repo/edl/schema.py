@@ -67,6 +67,7 @@ class EDL:
     logo: str = ""        # asset filename, optional
     business_name: str = ""
     text_style: Literal["boxed", "minimal", "punch"] = "boxed"  # "Make it cleaner" toggles "minimal"; "punch" = bold in-your-face type
+    font: str = ""         # filename in assets/fonts/ for text_style="punch"; "" = render engine's own default (Anton)
 
     @property
     def duration(self) -> float:
@@ -86,4 +87,5 @@ class EDL:
             logo=d.get("logo", ""),
             business_name=d.get("business_name", ""),
             text_style=d.get("text_style", "boxed"),
+            font=d.get("font", ""),
         )
