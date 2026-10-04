@@ -37,6 +37,48 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 RESULT_DIR.mkdir(exist_ok=True)
 
 MUSIC_DIR = ROOT / "assets" / "music"
+FONTS_DIR = ROOT / "assets" / "fonts"
+
+# Display name per font file in assets/fonts/ (or assets/fonts/<categorie>/)
+# — same self-service idea as MUSIC_DIR: drop a new .ttf in there and it
+# shows up here automatically (falls back to the bare filename stem for one
+# with no label yet, same as a music track with no entry in GENRE_LABELS).
+FONT_LABELS = {
+    "Anton-Regular": "Anton (condensed, huidige standaard)",
+    "ArchivoBlack-Regular": "Archivo Black",
+    "BebasNeue-Regular": "Bebas Neue",
+    "Staatliches-Regular": "Staatliches",
+    "AlfaSlabOne-Regular": "Alfa Slab One",
+    "BlackOpsOne-Regular": "Black Ops One",
+    "Bungee-Regular": "Bungee",
+    "Oswald-Regular": "Oswald",
+    "Montserrat-Regular": "Montserrat Black",
+    "Righteous-Regular": "Righteous",
+    "LuckiestGuy-Regular": "Luckiest Guy",
+    "PermanentMarker-Regular": "Permanent Marker",
+    "Pacifico-Regular": "Pacifico",
+    "PlayfairDisplay-Regular": "Playfair Display",
+    "AbrilFatface-Regular": "Abril Fatface",
+}
+
+# Display label per category-folder (assets/fonts/<categorie>/) — same
+# taxonomy idea as GENRE_LABELS below, just for lettertypen. "stoer" is
+# also where Anton/ArchivoBlack are grouped in the dropdown even though
+# those two still live loose at the top of assets/fonts/ (see
+# _LEGACY_FONT_CATEGORY) — nothing had to move for that.
+FONT_CATEGORY_LABELS = {
+    "stoer": "Stoer / Impact",
+    "strak": "Strak / Zakelijk",
+    "speels": "Speels",
+    "handgeschreven": "Handgeschreven",
+    "elegant": "Elegant",
+    "overig": "Overig",
+}
+_FONT_CATEGORY_ORDER = ("stoer", "strak", "speels", "handgeschreven", "elegant", "overig")
+_LEGACY_FONT_CATEGORY = {
+    "Anton-Regular": "stoer",
+    "ArchivoBlack-Regular": "stoer",
+}
 
 # Display name per genre-folder — John's own taxonomy (assets/music/<slug>/),
 # built from his real catalog (he produces his own music; some tracks are
@@ -89,8 +131,55 @@ def _load_music_groups():
     return groups, flat
 
 
+def _load_fonts():
+    """Returns [(category_label, [(key, label), ...]), ...] (same shape as
+    MUSIC_GROUPS, so the template reuses the exact same optgroup loop) and
+    the flat {key: relative-path-string} lookup used at render time.
+
+    key is the path under assets/fonts/ — either a bare filename for the
+    two legacy loose files ("Anton-Regular.ttf") or "<categorie>/filename"
+    for anything in a category subfolder ("stoer/BebasNeue-Regular.ttf").
+    render/pipeline.py resolves either shape the same way, via
+    FONTS_DIR / edl.font, so adding a category never requires moving an
+    existing file."""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    flat: dict[str, str] = {}
+
+    if FONTS_DIR.exists():
+        for f in sorted(FONTS_DIR.glob("*.ttf")):
+            category = _LEGACY_FONT_CATEGORY.get(f.stem, "overig")
+            label = FONT_LABELS.get(f.stem, f.stem)
+            flat[f.name] = f.name
+            groups.setdefault(category, []).append((f.name, label))
+        for cat_dir in sorted(FONTS_DIR.iterdir()):
+            if not cat_dir.is_dir():
+                continue
+            for f in sorted(cat_dir.glob("*.ttf")):
+                label = FONT_LABELS.get(f.stem, f.stem)
+                key = f"{cat_dir.name}/{f.name}"
+                flat[key] = key
+                groups.setdefault(cat_dir.name, []).append((key, label))
+
+    if not flat:
+        # Defensive fallback so /generate and the form never see zero fonts
+        # — render/pipeline.py's own default (Anton) still applies even if
+        # this list is somehow empty, this is just for the dropdown.
+        return [("Lettertype", [("", "Standaard")])], {"": ""}
+
+    ordered = [
+        (FONT_CATEGORY_LABELS.get(key, key.capitalize()), groups.pop(key))
+        for key in _FONT_CATEGORY_ORDER
+        if key in groups
+    ]
+    ordered += [(FONT_CATEGORY_LABELS.get(key, key.capitalize()), entries) for key, entries in groups.items()]
+    return ordered, flat
+
+
 MUSIC_GROUPS, MUSIC_LIBRARY = _load_music_groups()
 DEFAULT_MUSIC_KEY = next(iter(MUSIC_LIBRARY))
+
+FONT_GROUPS, FONT_LIBRARY = _load_fonts()
+DEFAULT_FONT_KEY = "Anton-Regular.ttf" if "Anton-Regular.ttf" in FONT_LIBRARY else next(iter(FONT_LIBRARY))
 
 ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg"}
@@ -106,6 +195,7 @@ def index():
         templates=sorted(TEMPLATES.keys()),
         formats=list(FORMAT_RESOLUTIONS.keys()),
         music_groups=MUSIC_GROUPS,
+        font_groups=FONT_GROUPS,
     )
 
 
@@ -127,6 +217,7 @@ def generate():
         template = request.form.get("template") or "Papercut"
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
+        font_choice = request.form.get("font") or DEFAULT_FONT_KEY
 
         if not business_name:
             return jsonify(ok=False, error="Bedrijfsnaam is verplicht."), 400
@@ -193,6 +284,12 @@ def generate():
             music_filename = music_src.name
             shutil.copy2(music_src, job_dir / music_filename)
 
+        # Font — resolved to a bare filename only; render/pipeline.py looks
+        # it up in its own assets/fonts/ (shipped with the app, not
+        # per-upload) the same way it already resolves the default Anton
+        # file, so nothing needs copying into the job's asset dir here.
+        font_filename = FONT_LIBRARY.get(font_choice, FONT_LIBRARY[DEFAULT_FONT_KEY])
+
         edl = build_simple_edl(
             business_name=business_name,
             headline=headline,
@@ -203,6 +300,7 @@ def generate():
             text_style="punch",
             music_file=music_filename,
             logo=logo_filename,
+            font_file=font_filename,
         )
 
         output_path = RESULT_DIR / f"{job_id}.mp4"
