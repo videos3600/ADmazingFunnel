@@ -70,6 +70,19 @@
         <input type="file" id="logo-input" name="logo" accept="image/png,image/jpeg">
       </div>
 
+      <div class="field">
+        <label for="font">Lettertype (tekst-animatie)</label>
+        <select id="font" name="font">
+          {% for group_label, items in font_groups %}
+          <optgroup label="{{ group_label }}">
+            {% for key, label in items %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+
       <div class="field-row">
         <div class="field">
           <label for="template">Template</label>
