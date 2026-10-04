@@ -34,6 +34,7 @@ def build_simple_edl(
     music_bpm: int = 105,
     music_file: str = "",
     logo: str = "",
+    font_file: str = "",
     target_total_duration: float = DEFAULT_TOTAL_DURATION,
 ) -> EDL:
     if not clip_filenames:
@@ -69,4 +70,5 @@ def build_simple_edl(
         logo=logo,
         business_name=business_name,
         text_style=text_style,  # type: ignore[arg-type]
+        font=font_file,
     )
