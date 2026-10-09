@@ -68,6 +68,7 @@ class EDL:
     business_name: str = ""
     text_style: Literal["boxed", "minimal", "punch"] = "boxed"  # "Make it cleaner" toggles "minimal"; "punch" = bold in-your-face type
     font: str = ""         # filename in assets/fonts/ for text_style="punch"; "" = render engine's own default (Anton)
+    text_animation: Literal["capture", "pop"] = "capture"  # text_style="punch" only — "capture" = per-letter cascade/glitch (render/text_fx.py's CapturePreset), "pop" = calmer per-word scale-bounce
 
     @property
     def duration(self) -> float:
@@ -88,4 +89,5 @@ class EDL:
             business_name=d.get("business_name", ""),
             text_style=d.get("text_style", "boxed"),
             font=d.get("font", ""),
+            text_animation=d.get("text_animation", "capture"),
         )
