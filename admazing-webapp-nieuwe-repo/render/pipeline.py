@@ -39,7 +39,21 @@ FONT_FILE = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 # treatment (technisch bouwplan: reactie op "meer in your face, minder
 # PowerPoint"). Converted from the @fontsource/anton npm package (woff2 ->
 # ttf via fontTools) since the sandbox can't reach GitHub raw directly.
-DISPLAY_FONT_FILE = str(Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Anton-Regular.ttf")
+FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+DISPLAY_FONT_FILE = str(FONTS_DIR / "Anton-Regular.ttf")
+
+
+def _resolve_punch_font(edl: EDL) -> str:
+    """edl.font holds a bare filename from assets/fonts/ (set by the webapp's
+    font picker — same resolve-by-filename pattern as music/logo). Falls
+    back to the default display font when unset or the file doesn't exist,
+    so an EDL built before this field existed (or a bad/missing filename)
+    never breaks a render."""
+    if edl.font:
+        candidate = FONTS_DIR / edl.font
+        if candidate.is_file():
+            return str(candidate)
+    return DISPLAY_FONT_FILE
 
 
 class Renderer:
@@ -130,7 +144,7 @@ class Renderer:
         render/templates/rotator.py, splitter.py)."""
         w, h = resolution
         overlay_path = render_punch_overlay(
-            edl, resolution, fps=30, work_dir=self.work_dir, font_path=DISPLAY_FONT_FILE, duration=duration
+            edl, resolution, fps=30, work_dir=self.work_dir, font_path=_resolve_punch_font(edl), duration=duration
         )
 
         out_path = self.work_dir / "with_text.mp4"
