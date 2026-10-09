@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT))
 from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
 from edl.schema import EDL  # noqa: E402
 from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
-from render.pipeline import render_edl, FORMAT_RESOLUTIONS  # noqa: E402
+from render.pipeline import render_edl, FORMAT_RESOLUTIONS, _resolve_punch_font  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
 
 # Longest side an uploaded clip/photo is allowed to keep — a modern phone
@@ -296,7 +296,20 @@ def _run_render_job(job_id: str, job_dir: Path, edl: EDL, output_path: Path, cli
             elif ext in ALLOWED_IMAGE_EXT:
                 _downscale_image_if_needed(fpath)
         render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
-        _write_status(job_dir, status="done", video_url=f"/result/{job_id}.mp4")
+        # Echoes exactly which font file this render actually used (not just
+        # which key the form submitted) — so "I picked font X but got Anton"
+        # is answerable from the status response alone, no Render log access
+        # or code reading needed. Mirrors render/pipeline.py's own fallback
+        # logic 1:1 (see _resolve_punch_font's print log for the same info
+        # in the deploy logs).
+        resolved_font_path = _resolve_punch_font(edl)
+        _write_status(
+            job_dir,
+            status="done",
+            video_url=f"/result/{job_id}.mp4",
+            font_requested=edl.font or "(standaard)",
+            font_used=Path(resolved_font_path).name,
+        )
     except Exception as exc:  # noqa: BLE001 — surface a readable error to the polling UI
         traceback.print_exc()
         _write_status(job_dir, status="error", error=f"Render mislukt: {exc}")
