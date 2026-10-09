@@ -6,15 +6,25 @@ pipeline in exactly the funnel steps from the concept doc's MVP-scope
 ("Homepage -> Upload -> bedrijfsinformatie -> template -> Generate ->
 Preview -> Download" — checkout left out on purpose, see the bouwplan).
 
-Runs the render SYNCHRONOUSLY inside the request (no job queue/websockets) —
-fine for the handful of short clips this is meant to be tested with; a real
-queue is a fase-1-productie concern, not something this test tool needs.
+Render runs in a BACKGROUND THREAD, not inside the /generate request: a
+real render (multiple phone clips + logo + punch text + music) regularly
+takes well past the ~30s a web proxy/gateway (and Render.com's own default)
+will hold a single HTTP request open, and a dropped mobile connection during
+a long synchronous request kills the whole upload with it. /generate now
+only validates + saves the upload (fast) and returns a job_id; the browser
+polls /status/<job_id> instead of waiting on one open connection, so a
+flaky mobile network just means a missed poll, not a lost render — the job
+keeps running server-side either way. Job state lives in a status.json file
+per job (not an in-memory dict) so it's read correctly even if Render ever
+runs more than one gunicorn worker process.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 import shutil
+import threading
 import traceback
 import uuid
 from pathlib import Path
@@ -26,9 +36,17 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
-from render.ffmpeg_utils import probe_duration  # noqa: E402
+from edl.schema import EDL  # noqa: E402
+from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
 from render.pipeline import render_edl, FORMAT_RESOLUTIONS  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
+
+# Longest side an uploaded clip/photo is allowed to keep — a modern phone
+# easily uploads 4K video or a 12MP photo, both far bigger than any format
+# this app outputs (max 1920 on the long side). Downscaling up front cuts
+# memory/CPU for every later step (trim, crossfade, text overlay, encode)
+# and shrinks how much the background job has to chew through.
+MAX_UPLOAD_DIMENSION = 1080
 
 APP_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = APP_DIR / "uploads"
@@ -79,6 +97,16 @@ _LEGACY_FONT_CATEGORY = {
     "Anton-Regular": "stoer",
     "ArchivoBlack-Regular": "stoer",
 }
+
+# text_style="punch" animation templates — render/text_fx.py's
+# render_punch_overlay() dispatches on edl.text_animation between these two.
+# (key, label, description) — the description is what tells the two apart
+# in the picker, since "CAPTURE" / "Rustig" alone doesn't.
+TEXT_ANIMATIONS = [
+    ("capture", "CAPTURE", "Per letter opbouw, cascade en glitch — druk en opvallend"),
+    ("pop", "Rustig (pop-in)", "Eén woord per keer, zachte bounce — strakker en leesbaarder"),
+]
+DEFAULT_TEXT_ANIMATION = TEXT_ANIMATIONS[0][0]
 
 # Display name per genre-folder — John's own taxonomy (assets/music/<slug>/),
 # built from his real catalog (he produces his own music; some tracks are
@@ -188,6 +216,104 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 400 * 1024 * 1024  # 400MB — a handful of raw phone clips
 
 
+def _downscale_video_if_needed(path: Path, max_dim: int = MAX_UPLOAD_DIMENSION) -> None:
+    """Re-encodes in place only if the clip is actually bigger than max_dim
+    on its long side — most desktop-sourced test clips already are smaller,
+    and re-encoding those would just waste time for nothing. Writes to a
+    sibling file and renames over the original so a crash mid-encode never
+    leaves a half-written file at the real path."""
+    try:
+        w, h = probe_resolution(path)
+    except Exception:
+        return  # unreadable/corrupt — let the real render step report it clearly
+    if max(w, h) <= max_dim:
+        return
+    vf = f"scale={max_dim}:-2" if w >= h else f"scale=-2:{max_dim}"
+    tmp = path.with_name(path.stem + "_ds" + path.suffix)
+    ffmpeg_run([
+        "ffmpeg", "-y", "-i", str(path),
+        "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "copy",
+        str(tmp),
+    ])
+    tmp.replace(path)
+
+
+def _downscale_image_if_needed(path: Path, max_dim: int = MAX_UPLOAD_DIMENSION) -> None:
+    """Same idea as _downscale_video_if_needed but for a photo upload — a
+    12MP+ phone photo held at -loop 1 for several seconds of video encoding
+    is needless work when nothing in this app ever outputs more than
+    1920px on the long side."""
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            if max(img.size) <= max_dim:
+                return
+            img = img.convert("RGB") if img.mode in ("P", "CMYK") else img
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+            img.save(path)
+    except Exception:
+        return  # unreadable/corrupt — let the real render step report it clearly
+
+
+def _status_path(job_dir: Path) -> Path:
+    return job_dir / "status.json"
+
+
+def _write_status(job_dir: Path, **fields) -> None:
+    """Whole-file overwrite via a temp file + rename, so a /status/<job_id>
+    read never sees a half-written JSON file — this is the only state a
+    poll reads, so it has to survive being read from a different request
+    (and, if Render ever runs >1 gunicorn worker, a different process) than
+    the one that's writing it."""
+    path = _status_path(job_dir)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(fields))
+    tmp.replace(path)
+
+
+def _read_status(job_dir: Path) -> dict | None:
+    path = _status_path(job_dir)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None  # caught mid-write by a previous version without the tmp+rename — treat as "not ready yet"
+
+
+def _run_render_job(job_id: str, job_dir: Path, edl: EDL, output_path: Path, clip_filenames: list[str]) -> None:
+    """The actual render, now off the request thread. Every step that can
+    raise is inside this try block so a crash always reaches status.json
+    instead of silently killing a bare background thread."""
+    try:
+        _write_status(job_dir, status="running")
+        for fname in clip_filenames:
+            ext = Path(fname).suffix.lower()
+            fpath = job_dir / fname
+            if ext in ALLOWED_VIDEO_EXT:
+                _downscale_video_if_needed(fpath)
+            elif ext in ALLOWED_IMAGE_EXT:
+                _downscale_image_if_needed(fpath)
+        render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
+        _write_status(job_dir, status="done", video_url=f"/result/{job_id}.mp4")
+    except Exception as exc:  # noqa: BLE001 — surface a readable error to the polling UI
+        traceback.print_exc()
+        _write_status(job_dir, status="error", error=f"Render mislukt: {exc}")
+    finally:
+        work_dir = job_dir / "_render_work"
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _font_css_family(key: str) -> str:
+    """A stable, CSS-safe @font-face family name for a font library key like
+    "stoer/BebasNeue-Regular.ttf" or "Anton-Regular.ttf" — used so the
+    homepage can show each option in its own real typeface (the "preview
+    van de lettertypen" ask) instead of a plain text label."""
+    return "admzfont-" + "".join(ch if ch.isalnum() else "-" for ch in key)
+
+
 @app.get("/")
 def index():
     return render_template(
@@ -196,7 +322,19 @@ def index():
         formats=list(FORMAT_RESOLUTIONS.keys()),
         music_groups=MUSIC_GROUPS,
         font_groups=FONT_GROUPS,
+        default_font_key=DEFAULT_FONT_KEY,
+        font_css_family=_font_css_family,
+        text_animations=TEXT_ANIMATIONS,
     )
+
+
+@app.get("/fonts/<path:filename>")
+def font_file(filename: str):
+    """Serves assets/fonts/ to the browser (that folder isn't under
+    webapp/static/) purely so the homepage's @font-face preview can load
+    the real files — render/pipeline.py never hits this route, it reads
+    the same files straight off disk."""
+    return send_from_directory(FONTS_DIR, filename)
 
 
 @app.post("/generate")
@@ -218,6 +356,9 @@ def generate():
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
         font_choice = request.form.get("font") or DEFAULT_FONT_KEY
+        text_animation = request.form.get("text_animation") or DEFAULT_TEXT_ANIMATION
+        if text_animation not in {key for key, _, _ in TEXT_ANIMATIONS}:
+            text_animation = DEFAULT_TEXT_ANIMATION
 
         if not business_name:
             return jsonify(ok=False, error="Bedrijfsnaam is verplicht."), 400
@@ -301,21 +442,39 @@ def generate():
             music_file=music_filename,
             logo=logo_filename,
             font_file=font_filename,
+            text_animation=text_animation,
         )
 
         output_path = RESULT_DIR / f"{job_id}.mp4"
-        render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
 
-        return jsonify(ok=True, video_url=f"/result/{job_id}.mp4")
+        # Everything above this line is just validating the request and
+        # saving small files — fast regardless of connection quality. The
+        # actual render (downscale + ffmpeg pipeline) can run 15–50+
+        # seconds, well past what a mobile connection or a web proxy will
+        # reliably hold a single request open for, so it happens in a
+        # background thread; the browser gets a job_id immediately and
+        # polls /status/<job_id> instead of waiting on one open connection.
+        _write_status(job_dir, status="queued")
+        thread = threading.Thread(
+            target=_run_render_job,
+            args=(job_id, job_dir, edl, output_path, clip_filenames),
+            daemon=True,
+        )
+        thread.start()
+
+        return jsonify(ok=True, job_id=job_id)
     except Exception as exc:  # noqa: BLE001 — surface a readable error to the test tool's own UI
         traceback.print_exc()
         return jsonify(ok=False, error=f"Render mislukt: {exc}"), 500
-    finally:
-        # Clean up the render's own scratch dir but keep the uploaded
-        # sources + result around for debugging a failed job.
-        work_dir = job_dir / "_render_work"
-        if work_dir.exists():
-            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+@app.get("/status/<job_id>")
+def status(job_id: str):
+    job_dir = UPLOAD_DIR / job_id
+    data = _read_status(job_dir)
+    if data is None:
+        return jsonify(ok=False, error="Onbekende job."), 404
+    return jsonify(ok=True, **data)
 
 
 @app.get("/result/<job_id>.mp4")
