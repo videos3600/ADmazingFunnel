@@ -29,6 +29,19 @@ def escape_drawtext(text: str) -> str:
     )
 
 
+def probe_resolution(path: Path) -> tuple[int, int]:
+    """(width, height) of a video's first stream — used by the webapp to
+    decide whether an uploaded phone clip needs downscaling before it hits
+    the render pipeline (see webapp/app.py's _downscale_video_if_needed)."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    w_str, h_str = result.stdout.strip().split("x")
+    return int(w_str), int(h_str)
+
+
 def probe_duration(path: Path) -> float:
     """Real duration of a rendered file. Templates whose assembly changes the
     total runtime (Rotator's crossfades eat time; Splitter's paired clips
