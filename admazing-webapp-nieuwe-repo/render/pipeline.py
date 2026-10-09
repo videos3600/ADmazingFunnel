@@ -48,11 +48,22 @@ def _resolve_punch_font(edl: EDL) -> str:
     font picker — same resolve-by-filename pattern as music/logo). Falls
     back to the default display font when unset or the file doesn't exist,
     so an EDL built before this field existed (or a bad/missing filename)
-    never breaks a render."""
+    never breaks a render.
+
+    The fallback used to be silent, which made "I selected font X but got
+    Anton" impossible to diagnose without reading Render's container
+    filesystem directly. It now always prints which path it picked (visible
+    in Render's log stream), and webapp/app.py echoes the resolved filename
+    into the job's status.json too, so a wrong font is visible straight from
+    the browser — no log access needed to confirm it."""
     if edl.font:
         candidate = FONTS_DIR / edl.font
         if candidate.is_file():
+            print(f"[font] edl.font={edl.font!r} -> using {candidate}", flush=True)
             return str(candidate)
+        print(f"[font] edl.font={edl.font!r} -> FILE NOT FOUND at {candidate}, falling back to {DISPLAY_FONT_FILE}", flush=True)
+    else:
+        print(f"[font] edl.font is empty -> using default {DISPLAY_FONT_FILE}", flush=True)
     return DISPLAY_FONT_FILE
 
 
