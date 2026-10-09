@@ -81,11 +81,12 @@
   });
 
   // ---- fake-but-honest progress checklist ----
-  // No real per-step signal from the backend (render_edl runs as one
-  // blocking call) — this animates through the steps on a timer while the
-  // actual request is in flight, and jumps straight to the last step
-  // ("Video renderen…") and holds there until the response actually comes
-  // back, rather than claiming a step finished before it could have.
+  // Still no real per-step signal from the backend (status.json only ever
+  // says queued/running/done/error, not which internal step) — this
+  // animates through the steps on a timer while the job is in flight, and
+  // jumps straight to the last step ("Video renderen…") and holds there
+  // until the poll actually reports done/error, rather than claiming a
+  // step finished before it could have.
   let progressTimer = null;
 
   function startProgressAnimation() {
@@ -115,6 +116,43 @@
     resultView.hidden = view !== "result";
   }
 
+  // ---- status polling ----
+  // The render runs server-side in a background thread (see webapp/app.py)
+  // precisely so a flaky mobile connection can't kill it mid-render — this
+  // loop reflects that: one failed poll is just skipped, not fatal. Only
+  // after several IN A ROW do we give up and tell the person to check their
+  // connection (by then the job itself may well still finish; they can
+  // just reopen the page, the backend never lost it).
+  const POLL_INTERVAL_MS = 1500;
+  const MAX_CONSECUTIVE_POLL_ERRORS = 8; // ~12s of unreachable server before giving up
+
+  async function pollStatus(jobId) {
+    let consecutiveErrors = 0;
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+      let resp, data;
+      try {
+        resp = await fetch(`/status/${jobId}`, { cache: "no-store" });
+        data = await resp.json();
+      } catch (err) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          throw new Error("Kon de status niet meer ophalen — controleer je internetverbinding. De video kan trouwens nog steeds klaar komen; probeer het later opnieuw.");
+        }
+        continue;
+      }
+      consecutiveErrors = 0;
+
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || "Kon de status niet ophalen.");
+      }
+      if (data.status === "done") return data;
+      if (data.status === "error") throw new Error(data.error || "Render mislukt.");
+      // "queued" / "running" — keep polling
+    }
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     formError.textContent = "";
@@ -132,21 +170,23 @@
       const resp = await fetch("/generate", { method: "POST", body: formData });
       const data = await resp.json();
 
-      stopProgressAnimation();
-
       if (!resp.ok || !data.ok) {
+        stopProgressAnimation();
         showView("form");
         formError.textContent = data.error || "Er ging iets mis bij het genereren.";
         return;
       }
 
-      resultVideo.src = data.video_url;
-      downloadLink.href = data.video_url;
+      const result = await pollStatus(data.job_id);
+
+      stopProgressAnimation();
+      resultVideo.src = result.video_url;
+      downloadLink.href = result.video_url;
       showView("result");
     } catch (err) {
       stopProgressAnimation();
       showView("form");
-      formError.textContent = "Kon geen verbinding maken met de server.";
+      formError.textContent = err.message || "Kon geen verbinding maken met de server.";
     }
   });
 
