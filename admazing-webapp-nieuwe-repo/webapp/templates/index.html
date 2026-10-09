@@ -5,6 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ADmazing — Upload je beelden. Krijg direct je advertentie.</title>
 <link rel="stylesheet" href="/static/style.css">
+<style>
+  /* One @font-face per font-library entry, generated from font_groups —
+     this is what lets the picker below show each option in its own real
+     typeface instead of just naming it. The font FILES still come from
+     /fonts/<key> (see webapp/app.py's font_file route); render-time text
+     animation never touches this CSS, it reads the same files off disk. */
+  {% for group_label, items in font_groups %}
+  {% for key, label in items %}
+  @font-face {
+    font-family: '{{ font_css_family(key) }}';
+    src: url('/fonts/{{ key }}') format('truetype');
+    font-display: swap;
+  }
+  {% endfor %}
+  {% endfor %}
+</style>
 </head>
 <body>
 
@@ -71,16 +87,36 @@
       </div>
 
       <div class="field">
-        <label for="font">Lettertype (tekst-animatie)</label>
-        <select id="font" name="font">
-          {% for group_label, items in font_groups %}
-          <optgroup label="{{ group_label }}">
-            {% for key, label in items %}
-            <option value="{{ key }}">{{ label }}</option>
-            {% endfor %}
-          </optgroup>
+        <label>Tekst-animatie stijl</label>
+        <div class="anim-choices" role="radiogroup" aria-label="Tekst-animatie stijl">
+          {% for key, label, description in text_animations %}
+          <label class="anim-choice">
+            <input type="radio" name="text_animation" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+            <span class="anim-choice-title">{{ label }}</span>
+            <span class="anim-choice-desc">{{ description }}</span>
+          </label>
           {% endfor %}
-        </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Lettertype (tekst-animatie)</label>
+        <div class="font-picker">
+          {% for group_label, items in font_groups %}
+          <div class="font-group">
+            <span class="font-group-label">{{ group_label }}</span>
+            <div class="font-group-options" role="radiogroup" aria-label="{{ group_label }}">
+              {% for key, label in items %}
+              <label class="font-choice">
+                <input type="radio" name="font" value="{{ key }}" {% if key == default_font_key %}checked{% endif %}>
+                <span class="font-choice-preview" style="font-family: '{{ font_css_family(key) }}', sans-serif;">Aa</span>
+                <span class="font-choice-text">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
 
       <div class="field-row">
