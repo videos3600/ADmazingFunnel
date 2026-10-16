@@ -10,6 +10,21 @@
   const resultVideo = document.getElementById("result-video");
   const downloadLink = document.getElementById("download-link");
   const makeAnotherBtn = document.getElementById("make-another");
+  const templateSelect = document.getElementById("template");
+  const uspField = document.getElementById("usp-field");
+
+  // The USP text field only means anything for Format001 (its fixed USP
+  // block — see edl/format_001.py) — every other template ignores it
+  // entirely, so there's no point showing it and asking for text nobody
+  // reads.
+  function syncUspFieldVisibility() {
+    if (!templateSelect || !uspField) return;
+    uspField.hidden = templateSelect.value !== "Format001";
+  }
+  if (templateSelect) {
+    templateSelect.addEventListener("change", syncUspFieldVisibility);
+    syncUspFieldVisibility();
+  }
 
   // Selected files live here (not directly in the <input>) so drag-and-drop
   // and click-to-browse can both add to the same growing list, with a
