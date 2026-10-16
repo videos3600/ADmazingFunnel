@@ -57,12 +57,53 @@ class MusicCue:
     file: str = ""       # resolved asset filename; empty until fase-1 music library exists
 
 
+BlockRole = Literal["HOOK", "HERO", "BRAND", "EXPERIENCE", "USP", "DESIRE", "CTA"]
+BlockType = Literal["footage", "tekstkaart", "logo", "overlay"]
+
+
+@dataclass
+class Block:
+    """One slot in a format's fixed timeline (Format 001:
+    HOOK -> HERO -> EXPERIENCE -> USP -> DESIRE -> CTA -> BRAND — see
+    edl/format_001.py). BRAND appears TWICE in the finished video — once as
+    a badge overlaid on the back portion of HERO's footage (`logo_overlay`
+    below), once as its own closing card — but only the closing one is a
+    block of its own; measured from John's reference edit (Jonny's Burgers,
+    Oct 2026), where the early brand moment is a logo stamped onto the
+    product shot, not a separate full-screen card.
+
+    Unlike ClipRef (a position on an already-assembled timeline), a Block IS
+    the timeline: render/block_pipeline.py renders each one as its own
+    normalized segment and concatenates them in order, so `duration` here is
+    that block's own length, not a start/end pair on a shared clock.
+
+    `content` means different things per `type`, same resolve-by-filename
+    pattern as edl.font/edl.logo elsewhere in this schema:
+      - "footage": the clip filename (must exist in assets_dir)
+      - "tekstkaart": the text to render (e.g. the HOOK line or USP line)
+      - "logo": text shown alongside edl.logo (e.g. the business name) —
+        content may be blank if edl.logo alone is enough
+      - "overlay": the CTA line, stamped with the same badge style the
+        punch-text CTA already uses elsewhere in this app
+    """
+    role: BlockRole
+    type: BlockType
+    duration: float
+    content: str = ""
+    logo_overlay: bool = False  # "footage" blocks only — stamps edl.logo (or business_name) as a badge over this block's back portion
+
+
 @dataclass
 class EDL:
-    template: Literal["Papercut", "Rotator", "Splitter", "Shake", "Flash", "Zoom"]
+    # "Format001" is a block-based EDL (see `blocks` below), rendered by
+    # render/block_pipeline.py — not render/pipeline.py's TEMPLATES registry.
+    # `clips`/`text_cues` stay empty for it; `blocks` stays empty for every
+    # other template.
+    template: Literal["Papercut", "Rotator", "Splitter", "Shake", "Flash", "Zoom", "Format001"]
     format: Format
     clips: list[ClipRef]
     text_cues: list[TextCue] = field(default_factory=list)
+    blocks: list[Block] = field(default_factory=list)  # Format 001+ only
     music: MusicCue | None = None
     logo: str = ""        # asset filename, optional
     business_name: str = ""
@@ -72,6 +113,8 @@ class EDL:
 
     @property
     def duration(self) -> float:
+        if self.blocks:
+            return round(sum(b.duration for b in self.blocks), 3)
         return max((c.end for c in self.clips), default=0.0)
 
     def to_dict(self) -> dict:
@@ -84,6 +127,7 @@ class EDL:
             format=d["format"],
             clips=[ClipRef(**c) for c in d["clips"]],
             text_cues=[TextCue(**t) for t in d.get("text_cues", [])],
+            blocks=[Block(**b) for b in d.get("blocks", [])],
             music=MusicCue(**d["music"]) if d.get("music") else None,
             logo=d.get("logo", ""),
             business_name=d.get("business_name", ""),
