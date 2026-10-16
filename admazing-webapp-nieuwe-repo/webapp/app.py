@@ -36,10 +36,20 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
+from edl.format_001 import build_format_001_edl  # noqa: E402
 from edl.schema import EDL  # noqa: E402
+from webapp.logo_cleanup import clean_logo_background  # noqa: E402
 from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
 from render.pipeline import render_edl, FORMAT_RESOLUTIONS, _resolve_punch_font  # noqa: E402
+from render.block_pipeline import render_format_001_edl  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
+
+# "Format001" isn't in TEMPLATES (render.templates' registry for render_edl's
+# cut/transition templates) — it's a block-based EDL rendered by its own
+# render_format_001_edl (see edl/format_001.py, render/block_pipeline.py).
+# Both _generate's template validation and the index page's dropdown need
+# to accept it as a real choice despite that.
+FORMAT_001_TEMPLATE = "Format001"
 
 # Longest side an uploaded clip/photo is allowed to keep — a modern phone
 # easily uploads 4K video or a 12MP photo, both far bigger than any format
@@ -107,6 +117,26 @@ TEXT_ANIMATIONS = [
     ("pop", "Rustig (pop-in)", "Eén woord per keer, zachte bounce — strakker en leesbaarder"),
 ]
 DEFAULT_TEXT_ANIMATION = TEXT_ANIMATIONS[0][0]
+
+# "Stijl" replaces the separate font-picker + tekst-animatie-picker below
+# with ONE choice. Product decision (confirmed with the client, Oct 2026):
+# a 12-font picker grouped into 5 categories, PLUS a separate animation
+# toggle, asks the ondernemer to play grafisch ontwerper ("Dan hebben we
+# gewoon Canva opnieuw gebouwd"). The format/stijl should decide the
+# typography, not the user: "De gebruiker kiest dus hooguit: Punchy / Clean
+# / Premium." Each style bundles a font + a text_animation (and later could
+# bundle more, e.g. a per-style motion treatment) behind one name.
+# FONT_LIBRARY/FONT_GROUPS above stay in place unused by this picker — the
+# client's own note: "Later kan Studio eventueel een beperkte fontoverride
+# krijgen", i.e. a possible future feature, not v1.
+# (key, label, description, font_file, text_animation)
+STYLES = [
+    ("punchy", "Punchy", "Stevig, uppercase, cascade-opbouw — voor een scherpe aanbieding", "stoer/BebasNeue-Regular.ttf", "capture"),
+    ("clean", "Clean", "Rustig en strak — voor een zakelijke, nette uitstraling", "strak/Oswald-Regular.ttf", "pop"),
+    ("premium", "Premium", "Subtiel en verfijnd — voor een premium uitstraling", "elegant/PlayfairDisplay-Regular.ttf", "pop"),
+]
+DEFAULT_STYLE_KEY = STYLES[0][0]
+STYLE_LIBRARY = {key: (font_file, text_animation) for key, _, _, font_file, text_animation in STYLES}
 
 # Display name per genre-folder — John's own taxonomy (assets/music/<slug>/),
 # built from his real catalog (he produces his own music; some tracks are
@@ -282,7 +312,10 @@ def _read_status(job_dir: Path) -> dict | None:
         return None  # caught mid-write by a previous version without the tmp+rename — treat as "not ready yet"
 
 
-def _run_render_job(job_id: str, job_dir: Path, edl: EDL, output_path: Path, clip_filenames: list[str]) -> None:
+def _run_render_job(
+    job_id: str, job_dir: Path, edl: EDL, output_path: Path, clip_filenames: list[str],
+    logo_cleanup_status: str = "",
+) -> None:
     """The actual render, now off the request thread. Every step that can
     raise is inside this try block so a crash always reaches status.json
     instead of silently killing a bare background thread."""
@@ -295,7 +328,13 @@ def _run_render_job(job_id: str, job_dir: Path, edl: EDL, output_path: Path, cli
                 _downscale_video_if_needed(fpath)
             elif ext in ALLOWED_IMAGE_EXT:
                 _downscale_image_if_needed(fpath)
-        render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
+        # Format001 is a block-based EDL rendered by its own entry point
+        # (render/block_pipeline.py) — render_edl's TEMPLATES-registry
+        # dispatch doesn't know about it and would raise ValueError.
+        if edl.template == FORMAT_001_TEMPLATE:
+            render_format_001_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
+        else:
+            render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
         # Echoes exactly which font file this render actually used (not just
         # which key the form submitted) — so "I picked font X but got Anton"
         # is answerable from the status response alone, no Render log access
@@ -309,6 +348,11 @@ def _run_render_job(job_id: str, job_dir: Path, edl: EDL, output_path: Path, cli
             video_url=f"/result/{job_id}.mp4",
             font_requested=edl.font or "(standaard)",
             font_used=Path(resolved_font_path).name,
+            # Same self-serve idea as font_requested/font_used above — "why
+            # does my logo still have a white box" shouldn't need a Render
+            # log lookup. See webapp/logo_cleanup.py for what each status
+            # value means.
+            logo_cleanup=logo_cleanup_status or "(geen logo)",
         )
     except Exception as exc:  # noqa: BLE001 — surface a readable error to the polling UI
         traceback.print_exc()
@@ -331,13 +375,13 @@ def _font_css_family(key: str) -> str:
 def index():
     return render_template(
         "index.html",
-        templates=sorted(TEMPLATES.keys()),
+        templates=sorted(TEMPLATES.keys()) + [FORMAT_001_TEMPLATE],
+        format_001_template=FORMAT_001_TEMPLATE,
         formats=list(FORMAT_RESOLUTIONS.keys()),
         music_groups=MUSIC_GROUPS,
-        font_groups=FONT_GROUPS,
-        default_font_key=DEFAULT_FONT_KEY,
+        styles=STYLES,
+        default_style_key=DEFAULT_STYLE_KEY,
         font_css_family=_font_css_family,
-        text_animations=TEXT_ANIMATIONS,
     )
 
 
@@ -365,17 +409,18 @@ def generate():
         business_name = (request.form.get("business_name") or "").strip()
         offer = (request.form.get("offer") or "").strip()
         cta_text = (request.form.get("cta_text") or "").strip()
+        usp_text = (request.form.get("usp") or "").strip()  # Format 001 only — see build_format_001_edl's own fallback if left blank
         template = request.form.get("template") or "Papercut"
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
-        font_choice = request.form.get("font") or DEFAULT_FONT_KEY
-        text_animation = request.form.get("text_animation") or DEFAULT_TEXT_ANIMATION
-        if text_animation not in {key for key, _, _ in TEXT_ANIMATIONS}:
-            text_animation = DEFAULT_TEXT_ANIMATION
+        style_choice = request.form.get("style") or DEFAULT_STYLE_KEY
+        if style_choice not in STYLE_LIBRARY:
+            style_choice = DEFAULT_STYLE_KEY
+        font_filename, text_animation = STYLE_LIBRARY[style_choice]
 
         if not business_name:
             return jsonify(ok=False, error="Bedrijfsnaam is verplicht."), 400
-        if template not in TEMPLATES:
+        if template != FORMAT_001_TEMPLATE and template not in TEMPLATES:
             return jsonify(ok=False, error=f"Onbekend template '{template}'."), 400
         if output_format not in FORMAT_RESOLUTIONS:
             return jsonify(ok=False, error=f"Onbekend formaat '{output_format}'."), 400
@@ -420,14 +465,21 @@ def generate():
                 ),
             ), 400
 
-        # Optional logo
+        # Optional logo — cleaned up (flat background made transparent)
+        # right here, before it ever reaches the EDL/renderer, so a plain
+        # white-background export from Canva or a screenshot doesn't show
+        # up as an ugly box in the render (see webapp/logo_cleanup.py for
+        # why a full AI background-removal model was NOT used for this).
         logo_filename = ""
+        logo_cleanup_status = ""
         logo_file = request.files.get("logo")
         if logo_file and logo_file.filename:
             ext = Path(secure_filename(logo_file.filename)).suffix.lower()
             if ext in ALLOWED_IMAGE_EXT or ext == ".png":
-                logo_filename = f"logo{ext}"
-                logo_file.save(job_dir / logo_filename)
+                saved_path = job_dir / f"logo{ext}"
+                logo_file.save(saved_path)
+                cleaned_path, logo_cleanup_status = clean_logo_background(saved_path)
+                logo_filename = cleaned_path.name
 
         # Music — placeholder library only (fase 1 openstaande keuze: echte
         # licenties), copied into the job's own asset dir so render_edl's
@@ -438,25 +490,38 @@ def generate():
             music_filename = music_src.name
             shutil.copy2(music_src, job_dir / music_filename)
 
-        # Font — resolved to a bare filename only; render/pipeline.py looks
-        # it up in its own assets/fonts/ (shipped with the app, not
-        # per-upload) the same way it already resolves the default Anton
-        # file, so nothing needs copying into the job's asset dir here.
-        font_filename = FONT_LIBRARY.get(font_choice, FONT_LIBRARY[DEFAULT_FONT_KEY])
-
-        edl = build_simple_edl(
-            business_name=business_name,
-            headline=headline,
-            cta=cta,
-            clip_filenames=clip_filenames,
-            template=template,
-            output_format=output_format,
-            text_style="punch",
-            music_file=music_filename,
-            logo=logo_filename,
-            font_file=font_filename,
-            text_animation=text_animation,
-        )
+        # font_filename is already a bare "<categorie>/filename.ttf" key from
+        # STYLE_LIBRARY (resolved from the chosen style, not a per-upload
+        # file) — render/pipeline.py looks it up in its own assets/fonts/
+        # the same way it already resolves the default Anton file, so
+        # nothing needs copying into the job's asset dir here.
+        if template == FORMAT_001_TEMPLATE:
+            edl = build_format_001_edl(
+                business_name=business_name,
+                headline=headline,
+                cta=cta,
+                clip_filenames=clip_filenames,
+                usp_text=usp_text,
+                output_format=output_format,
+                music_file=music_filename,
+                logo=logo_filename,
+                font_file=font_filename,
+                text_animation=text_animation,
+            )
+        else:
+            edl = build_simple_edl(
+                business_name=business_name,
+                headline=headline,
+                cta=cta,
+                clip_filenames=clip_filenames,
+                template=template,
+                output_format=output_format,
+                text_style="punch",
+                music_file=music_filename,
+                logo=logo_filename,
+                font_file=font_filename,
+                text_animation=text_animation,
+            )
 
         output_path = RESULT_DIR / f"{job_id}.mp4"
 
@@ -470,7 +535,7 @@ def generate():
         _write_status(job_dir, status="queued")
         thread = threading.Thread(
             target=_run_render_job,
-            args=(job_id, job_dir, edl, output_path, clip_filenames),
+            args=(job_id, job_dir, edl, output_path, clip_filenames, logo_cleanup_status),
             daemon=True,
         )
         thread.start()
