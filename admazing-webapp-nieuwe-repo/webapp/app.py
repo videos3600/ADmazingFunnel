@@ -35,21 +35,28 @@ from werkzeug.utils import secure_filename
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
+# simple_generator's build_simple_edl is no longer wired up anywhere (see
+# edl/format_001.py's "Third revision" docstring note) — MIN_CLIP_DURATION
+# is still used below for upload validation, independent of which EDL
+# builder ends up running.
+from edl.simple_generator import MIN_CLIP_DURATION  # noqa: E402
 from edl.format_001 import build_format_001_edl, MAX_USED_CLIPS  # noqa: E402
 from edl.schema import EDL  # noqa: E402
 from webapp.logo_cleanup import clean_logo_background  # noqa: E402
 from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
-from render.pipeline import render_edl, FORMAT_RESOLUTIONS, _resolve_punch_font  # noqa: E402
+from render.pipeline import FORMAT_RESOLUTIONS, _resolve_punch_font  # noqa: E402
 from render.block_pipeline import render_format_001_edl  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
 
-# "Format001" isn't in TEMPLATES (render.templates' registry for render_edl's
-# cut/transition templates) — it's a block-based EDL rendered by its own
-# render_format_001_edl (see edl/format_001.py, render/block_pipeline.py).
-# Both _generate's template validation and the index page's dropdown need
-# to accept it as a real choice despite that.
-FORMAT_001_TEMPLATE = "Format001"
+# Every ad is Format 001's block structure now, always (see
+# edl/format_001.py) — TEMPLATES (render/templates/__init__.py) is the
+# dropdown's ONLY source of valid values these days: the six EDIT STYLES
+# (Papercut/Rotator/Splitter/Shake/Flash/Zoom), no longer a separate
+# "Format001" choice alongside them. DEFAULT_EDIT_STYLE is a deliberate,
+# explicit pick (NOT "whatever sorts first") — see index()'s own comment
+# for the bug that bit this app the last time a dropdown default was left
+# implicit.
+DEFAULT_EDIT_STYLE = "Papercut"
 
 # Longest side an uploaded clip/photo is allowed to keep — a modern phone
 # easily uploads 4K video or a 12MP photo, both far bigger than any format
@@ -348,13 +355,9 @@ def _run_render_job(
                 _downscale_video_if_needed(fpath)
             elif ext in ALLOWED_IMAGE_EXT:
                 _downscale_image_if_needed(fpath)
-        # Format001 is a block-based EDL rendered by its own entry point
-        # (render/block_pipeline.py) — render_edl's TEMPLATES-registry
-        # dispatch doesn't know about it and would raise ValueError.
-        if edl.template == FORMAT_001_TEMPLATE:
-            render_format_001_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
-        else:
-            render_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
+        # Every ad is Format 001's block structure now (see edl/format_001.py's
+        # "Third revision" note) — this is the only render entry point left.
+        render_format_001_edl(edl, assets_dir=job_dir, output_path=output_path, work_dir=job_dir / "_render_work")
         # Echoes exactly which font file this render actually used (not just
         # which key the form submitted) — so "I picked font X but got Anton"
         # is answerable from the status response alone, no Render log access
@@ -362,6 +365,14 @@ def _run_render_job(
         # logic 1:1 (see _resolve_punch_font's print log for the same info
         # in the deploy logs).
         resolved_font_path = _resolve_punch_font(edl)
+        # The REAL final duration, not edl.duration's nominal block-count
+        # estimate — Rotator/Splitter edit styles legitimately produce a
+        # shorter video than the naive block-duration sum once they're
+        # applied to a footage run (see render/block_pipeline.py), so
+        # trusting edl.duration here would over-report length for those two
+        # styles specifically. Probing the actual rendered file is correct
+        # for every edit style, not just a correction for those two.
+        actual_video_duration = probe_duration(output_path)
         _write_status(
             job_dir,
             status="done",
@@ -373,14 +384,14 @@ def _run_render_job(
             # log lookup. See webapp/logo_cleanup.py for what each status
             # value means.
             logo_cleanup=logo_cleanup_status or "(geen logo)",
-            # Actual block count / duration Format 001 ended up building
-            # (edl.duration already accounts for the dynamic block count —
-            # see edl/format_001.py) — the browser's own live estimate
-            # (webapp/static/app.js) uses the same arithmetic ahead of time,
-            # this is the confirmed, post-render number. 0/"" for every
-            # other template, which isn't block-based.
+            # Block count Format 001 ended up building (see
+            # edl/format_001.py's dynamic scaling) alongside the real,
+            # probed final duration (see actual_video_duration above) — the
+            # browser's own live estimate (webapp/static/app.js) uses the
+            # same block-count arithmetic ahead of time; this is the
+            # confirmed, post-render number.
             block_count=len(edl.blocks),
-            video_duration=edl.duration if edl.blocks else None,
+            video_duration=actual_video_duration,
             unused_clip_count=unused_clip_count,
         )
     except Exception as exc:  # noqa: BLE001 — surface a readable error to the polling UI
@@ -404,15 +415,18 @@ def _font_css_family(key: str) -> str:
 def index():
     return render_template(
         "index.html",
-        # Format001 first AND marked `selected` in the <option> (see
-        # index.html) — it's the actively developed format; leaving it last
-        # with no default meant the dropdown silently fell back to "Flash"
-        # (alphabetically first), which uses the OLD simple_generator with
-        # its own hardcoded 9.0s total (see edl/simple_generator.py's
-        # DEFAULT_TOTAL_DURATION) — not a Format001 bug, just the wrong
-        # template being selected by default.
-        templates=[FORMAT_001_TEMPLATE] + sorted(TEMPLATES.keys()),
-        format_001_template=FORMAT_001_TEMPLATE,
+        # The dropdown is now just the six edit styles (no more separate
+        # "Format001" choice — see edl/format_001.py). DEFAULT_EDIT_STYLE is
+        # marked `selected` explicitly in index.html's <option> loop — a
+        # past round of this app once left every <option> unmarked and let
+        # the browser silently default to whichever name sorted first, which
+        # at the time quietly routed every render through a completely
+        # unrelated, hardcoded-9-second legacy code path. Not possible
+        # anymore now that simple_generator isn't wired up at all, but an
+        # explicit `selected` default costs nothing and avoids ever relying
+        # on dropdown ordering again.
+        templates=sorted(TEMPLATES.keys()),
+        default_template=DEFAULT_EDIT_STYLE,
         formats=list(FORMAT_RESOLUTIONS.keys()),
         music_groups=MUSIC_GROUPS,
         styles=STYLES,
@@ -445,12 +459,12 @@ def generate():
         business_name = (request.form.get("business_name") or "").strip()
         offer = (request.form.get("offer") or "").strip()
         cta_text = (request.form.get("cta_text") or "").strip()
-        usp_text = (request.form.get("usp") or "").strip()  # Format 001 only — see build_format_001_edl's own fallback if left blank
-        # Falls back to the same template the form's own dropdown defaults
+        usp_text = (request.form.get("usp") or "").strip()  # every ad is Format 001 now — see build_format_001_edl's own fallback if left blank
+        # Falls back to the same edit style the form's own dropdown defaults
         # to (see index()) — only matters for a request with no "template"
         # field at all (malformed/scripted), since the real form always
         # submits a value now that one <option> is explicitly `selected`.
-        template = request.form.get("template") or FORMAT_001_TEMPLATE
+        template = request.form.get("template") or DEFAULT_EDIT_STYLE
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
         style_choice = request.form.get("style") or DEFAULT_STYLE_KEY
@@ -460,8 +474,8 @@ def generate():
 
         if not business_name:
             return jsonify(ok=False, error="Bedrijfsnaam is verplicht."), 400
-        if template != FORMAT_001_TEMPLATE and template not in TEMPLATES:
-            return jsonify(ok=False, error=f"Onbekend template '{template}'."), 400
+        if template not in TEMPLATES:
+            return jsonify(ok=False, error=f"Onbekende edit stijl '{template}'."), 400
         if output_format not in FORMAT_RESOLUTIONS:
             return jsonify(ok=False, error=f"Onbekend formaat '{output_format}'."), 400
 
@@ -541,36 +555,24 @@ def generate():
         # messaging here — this fase-1 test tool has no pricing tiers to
         # gate behind, so this is a plain capacity notice, carried through
         # to status.json the same way font_requested/font_used and
-        # logo_cleanup already are (see _run_render_job).
-        unused_clip_count = max(0, len(clip_filenames) - MAX_USED_CLIPS) if template == FORMAT_001_TEMPLATE else 0
+        # logo_cleanup already are (see _run_render_job). Unconditional now
+        # — every render is Format 001, there's no other EDL shape left to
+        # branch on.
+        unused_clip_count = max(0, len(clip_filenames) - MAX_USED_CLIPS)
 
-        if template == FORMAT_001_TEMPLATE:
-            edl = build_format_001_edl(
-                business_name=business_name,
-                headline=headline,
-                cta=cta,
-                clip_filenames=clip_filenames,
-                usp_text=usp_text,
-                output_format=output_format,
-                music_file=music_filename,
-                logo=logo_filename,
-                font_file=font_filename,
-                text_animation=text_animation,
-            )
-        else:
-            edl = build_simple_edl(
-                business_name=business_name,
-                headline=headline,
-                cta=cta,
-                clip_filenames=clip_filenames,
-                template=template,
-                output_format=output_format,
-                text_style="punch",
-                music_file=music_filename,
-                logo=logo_filename,
-                font_file=font_filename,
-                text_animation=text_animation,
-            )
+        edl = build_format_001_edl(
+            business_name=business_name,
+            headline=headline,
+            cta=cta,
+            clip_filenames=clip_filenames,
+            edit_style=template,
+            usp_text=usp_text,
+            output_format=output_format,
+            music_file=music_filename,
+            logo=logo_filename,
+            font_file=font_filename,
+            text_animation=text_animation,
+        )
 
         output_path = RESULT_DIR / f"{job_id}.mp4"
 
