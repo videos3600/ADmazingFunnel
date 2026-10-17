@@ -77,9 +77,10 @@
 
       <div class="field">
         <label>Sleep hier je foto's en video's</label>
+        <p class="field-note">Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.</p>
         <div class="dropzone" id="dropzone" tabindex="0">
-          <div class="dropzone-hint">Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span></div>
-          <ul class="file-list" id="file-list"></ul>
+          <div class="dropzone-hint" id="dropzone-hint">Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span></div>
+          <div class="media-grid" id="media-grid"></div>
         </div>
         <input type="file" id="footage-input" name="footage" multiple accept="video/*,image/*" hidden>
       </div>
