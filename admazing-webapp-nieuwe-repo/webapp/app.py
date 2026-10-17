@@ -251,7 +251,20 @@ def _downscale_video_if_needed(path: Path, max_dim: int = MAX_UPLOAD_DIMENSION) 
     on its long side — most desktop-sourced test clips already are smaller,
     and re-encoding those would just waste time for nothing. Writes to a
     sibling file and renames over the original so a crash mid-encode never
-    leaves a half-written file at the real path."""
+    leaves a half-written file at the real path.
+
+    The temp file keeps the ORIGINAL suffix — clip_filenames (and the EDL
+    blocks built from it, before this function ever runs) reference that
+    exact filename, so renaming the extension here would leave the EDL
+    pointing at a file that no longer exists. Which means the video codec
+    has to match what THAT container can actually hold, not just
+    "libx264 for everything": a .webm upload (e.g. a browser MediaRecorder
+    clip, vp9/opus) re-encoded with libx264 but still written into a .webm
+    container fails outright — WebM's muxer only accepts VP8/VP9/AV1 video
+    ("Could not write header (incorrect codec parameters ?)" / "Only VP8 or
+    VP9 or AV1 video ... are supported for WebM."). .mp4/.mov/.m4v all
+    happily hold H.264, so only .webm needs the VP9 branch below.
+    """
     try:
         w, h = probe_resolution(path)
     except Exception:
@@ -260,9 +273,16 @@ def _downscale_video_if_needed(path: Path, max_dim: int = MAX_UPLOAD_DIMENSION) 
         return
     vf = f"scale={max_dim}:-2" if w >= h else f"scale=-2:{max_dim}"
     tmp = path.with_name(path.stem + "_ds" + path.suffix)
+    if path.suffix.lower() == ".webm":
+        # -deadline realtime -cpu-used 8: libvpx-vp9's fastest settings —
+        # without them VP9 defaults to a far slower encode than libx264's
+        # veryfast, and this can run against a multi-minute raw upload.
+        video_args = ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-deadline", "realtime", "-cpu-used", "8"]
+    else:
+        video_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
     ffmpeg_run([
         "ffmpeg", "-y", "-i", str(path),
-        "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-vf", vf, *video_args,
         "-c:a", "copy",
         str(tmp),
     ])
