@@ -42,6 +42,21 @@ behind) — webapp/app.py just tells the uploader plainly how many clips
 won't make the cut, the same self-serve-diagnostic pattern already used for
 font_requested/font_used and logo_cleanup.
 
+Third revision (same day, client: "Format001 moet weg want elke edit moet
+standaard de Format001 hebben. Format ia de volgorde van blocks en niet de
+edit stijl. Flash, zoom etc is de edit stijl en daar alleen kan de
+ondernemer uit kiezen."): this format's block structure is no longer one
+option among several — it's now the ONLY render path, always on, for
+every ad regardless of which edit style the entrepreneur picks. What used
+to be the "Template" dropdown's one Format001-vs-other-templates choice is
+gone; that dropdown now ONLY offers the six edit styles (Papercut/Rotator/
+Splitter/Shake/Flash/Zoom), which this function takes as `edit_style` and
+simply stores as the returned EDL's `template` field — see
+render/block_pipeline.py for how each style then gets applied to this
+format's footage blocks. Nothing about the block/role/timing logic below
+changed for this revision; only which caller builds the EDL (webapp/app.py
+calls this unconditionally now) and what `template` means downstream.
+
 Footage-role blocks (HERO, EXPERIENCE, DESIRE, and any extra MOMENT blocks)
 are filled from the uploaded clips in UPLOAD ORDER — there is deliberately
 no vision/classification step in v1 (explicitly out of scope, same as
@@ -106,6 +121,7 @@ def build_format_001_edl(
     headline: str,            # HOOK card text
     cta: str,                 # CTA card text
     clip_filenames: list[str],
+    edit_style: str,          # "Papercut" | "Rotator" | "Splitter" | "Shake" | "Flash" | "Zoom" — see render/block_pipeline.py
     usp_text: str = "",       # USP card text; "" falls back to the hook line (see fallback rules below)
     output_format: str = "9:16",
     music_file: str = "",
@@ -115,7 +131,10 @@ def build_format_001_edl(
     role_overrides: dict[str, str] | None = None,
 ) -> EDL:
     """Builds one Format 001 EDL. Block count scales with how much footage
-    was uploaded — see module docstring. `role_overrides` is an optional
+    was uploaded — see module docstring. `edit_style` is stored as-is on
+    the returned EDL's `template` field — this function doesn't validate it
+    against render/templates.TEMPLATES itself, webapp/app.py already does
+    that before calling in. `role_overrides` is an optional
     {role: clip_filename} map for a future manual per-clip assignment UI,
     covering only the base 3 footage roles (HERO/EXPERIENCE/DESIRE) — any
     role not present in it falls back to the upload-order cycling below (so
@@ -178,7 +197,7 @@ def build_format_001_edl(
         blocks.append(Block(role=role, type=btype, duration=BLOCK_DURATION, content=content, logo_overlay=logo_overlay))  # type: ignore[arg-type]
 
     return EDL(
-        template="Format001",
+        template=edit_style,  # type: ignore[arg-type]
         format=output_format,  # type: ignore[arg-type]
         clips=[],
         blocks=blocks,

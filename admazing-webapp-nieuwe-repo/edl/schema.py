@@ -101,11 +101,27 @@ class Block:
 
 @dataclass
 class EDL:
-    # "Format001" is a block-based EDL (see `blocks` below), rendered by
-    # render/block_pipeline.py — not render/pipeline.py's TEMPLATES registry.
-    # `clips`/`text_cues` stay empty for it; `blocks` stays empty for every
-    # other template.
-    template: Literal["Papercut", "Rotator", "Splitter", "Shake", "Flash", "Zoom", "Format001"]
+    # Revision (Oct 17 2026, client: "Format001 moet weg want elke edit moet
+    # standaard de Format001 hebben. Format ia de volgorde van blocks en niet
+    # de edit stijl. Flash, zoom etc is de edit stijl..."): every EDL built
+    # by webapp/app.py is now block-based (`blocks` populated, `clips`
+    # empty) and rendered by render/block_pipeline.py — "Format001" is no
+    # longer a selectable template value, because it's no longer optional.
+    # `template` now names the EDIT STYLE (Papercut/Rotator/Splitter/Shake/
+    # Flash/Zoom) applied to the footage blocks WITHIN that fixed timeline —
+    # see render/block_pipeline.py's module docstring for exactly how each
+    # style gets reused there. render/pipeline.py's Renderer/TEMPLATES
+    # dispatch (the OLD render path, driven by `clips`/`text_cues`) still
+    # exists and still works, it's just no longer wired up from the webapp —
+    # kept rather than deleted in case a future format needs it again.
+    #
+    # The one exception: render/block_pipeline.py internally builds small
+    # THROWAWAY synthetic EDLs with `clips` populated, purely to hand a
+    # footage run off to a "pair" edit style's own assemble() — never
+    # user-facing, never constructed by edl/format_001.py's
+    # build_format_001_edl, and never what `clips` being non-empty means
+    # anywhere else in this app.
+    template: Literal["Papercut", "Rotator", "Splitter", "Shake", "Flash", "Zoom"]
     format: Format
     clips: list[ClipRef]
     text_cues: list[TextCue] = field(default_factory=list)
