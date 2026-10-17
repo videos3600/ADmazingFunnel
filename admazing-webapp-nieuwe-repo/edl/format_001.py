@@ -1,34 +1,32 @@
 """
-Format 001: a fixed 7-block structure —
-HOOK -> HERO (+ merk-badge overlay, laatste ~40%) -> EXPERIENCE -> USP ->
-DESIRE -> CTA -> BRAND (sluiting).
+Format 001: a fixed 6-block structure —
+HOOK -> HERO (+ merk-badge overlay) -> EXPERIENCE -> USP -> DESIRE -> CTA.
 
 Product decision (Oct 2026, confirmed with the client): v1 does NOT scale
 these numbers to a target total length. These are Format 001's one and only
 timings for now — no dynamic timing system until one format has actually
 been judged end to end.
 
-This timing table replaces an earlier 12.2s placeholder (the client's own
-rough guess before any reference existed). It is instead measured from the
-client's actual uploaded reference edit (Jonny's Burgers, 31.44s, 14 scene
-cuts analyzed via ffmpeg scene-cut detection + frame review) and confirmed
-with the client message-for-message:
-  - the reference showed BRAND appearing twice — early, as a logo badge
-    OVERLAID on the HERO footage (not a standalone card), and again as a
-    genuine standalone closing card — which the client confirmed was his
-    original intent all along ("De brand overlay was de oorspronkelijke
-    bedoeling. vroeg en op het einde.");
-  - the reference had no explicit CTA (it relied solely on its hook/offer
-    text), but the client explicitly chose to keep a dedicated CTA block in
-    Format 001 regardless ("CTA laten we erin. Men moet tot actie overgaan
-    hoe dan ook."), since not every future client will have a hard discount
-    to lean on;
-  - total duration grew from 12.2s to 32.5s to match the reference's actual
-    pacing (12.2s left almost no room for the pop-in animation itself,
-    which eats ~0.4s regardless of block length).
-Final confirmed table (client: "Graag"):
-  HOOK 3.0s / HERO 9.0s (+overlay) / EXPERIENCE 6.0s / USP 3.5s /
-  DESIRE 5.5s / CTA 2.5s / BRAND 3.0s = 32.5s.
+Revision (Oct 17 2026, client: "Brand mag in overlay. Dus het worden er dat
+wat minder blocks. [...] Elke block duur 4 seconden. 1 Shot per blok
+graag."), superseding the earlier 7-block/32.5s table:
+  - BRAND is no longer a standalone closing block — it is ONLY the overlay
+    badge stamped on HERO (see `logo_overlay` below). The client was
+    explicit that this overlay still needs its own "vette animatie" (a
+    punchier, more deliberate motion than today's simple pop-in badge) but
+    hasn't specified it yet ("Ik laat je nog weten hoe ik dat wil") — so
+    `_apply_logo_overlay` in render/block_pipeline.py is UNCHANGED for now
+    and stays a placeholder until that spec arrives. Do not polish that
+    animation preemptively.
+  - every remaining role gets a flat, equal 4.0s — no more per-role timing
+    tuned to the reference edit's pacing (that was the 7-block table's
+    whole premise; the client has now explicitly moved off it).
+  - "1 shot per blok" was already true of this implementation (FOOTAGE_ROLES
+    assigns exactly one uploaded clip per footage role — see
+    build_format_001_edl below) — not a code change, just confirms the
+    Reference Match Pass's multi-shot-per-chapter idea was NOT adopted.
+Current table: HOOK 4.0s / HERO 4.0s (+overlay) / EXPERIENCE 4.0s /
+USP 4.0s / DESIRE 4.0s / CTA 4.0s = 24.0s.
 
 Footage-role blocks (HERO, EXPERIENCE, DESIRE) are filled from the uploaded
 clips in UPLOAD ORDER — there is deliberately no vision/classification step
@@ -40,11 +38,11 @@ rebuild (explicit client instruction). `role_overrides` below is the seam
 a future per-clip role picker plugs into without changing this function's
 signature.
 
-Non-footage blocks (HOOK, USP, CTA, BRAND) are engine-generated text/logo
-cards — see render/block_pipeline.py for how they're actually drawn (reuses
-the exact same pop-in/CTA-badge look the punch-text overlay already uses
-elsewhere, so Format 001 doesn't introduce a third, inconsistent typography
-treatment). HERO's early brand moment is NOT a block of its own — it's the
+Non-footage blocks (HOOK, USP, CTA) are engine-generated text cards — see
+render/block_pipeline.py for how they're actually drawn (reuses the exact
+same pop-in/CTA-badge look the punch-text overlay already uses elsewhere,
+so Format 001 doesn't introduce a third, inconsistent typography
+treatment). The brand moment is NOT a block of its own — it's the
 `logo_overlay` flag on the HERO block, composited onto that footage's own
 back portion (see render/block_pipeline.py's overlay logic).
 """
@@ -53,20 +51,20 @@ from __future__ import annotations
 
 from .schema import EDL, Block, BlockRole, MusicCue
 
-# Fixed v1 timing (seconds) — sums to exactly 32.5s. See module docstring:
-# measured from the client's actual uploaded reference edit and confirmed
-# with him block by block.
+# Fixed v1 timing (seconds) — flat 4.0s per block, sums to 24.0s. See module
+# docstring: BRAND dropped as a standalone block (overlay-only now), and the
+# client moved off per-role timing tuned to the reference edit in favour of
+# a uniform duration.
 FORMAT_001_TIMING: dict[str, float] = {
-    "HOOK": 3.0,
-    "HERO": 9.0,
-    "EXPERIENCE": 6.0,
-    "USP": 3.5,
-    "DESIRE": 5.5,
-    "CTA": 2.5,
-    "BRAND": 3.0,
+    "HOOK": 4.0,
+    "HERO": 4.0,
+    "EXPERIENCE": 4.0,
+    "USP": 4.0,
+    "DESIRE": 4.0,
+    "CTA": 4.0,
 }
-FORMAT_001_ROLE_ORDER: list[BlockRole] = ["HOOK", "HERO", "EXPERIENCE", "USP", "DESIRE", "CTA", "BRAND"]
-FORMAT_001_TOTAL_DURATION = round(sum(FORMAT_001_TIMING.values()), 3)  # 32.5
+FORMAT_001_ROLE_ORDER: list[BlockRole] = ["HOOK", "HERO", "EXPERIENCE", "USP", "DESIRE", "CTA"]
+FORMAT_001_TOTAL_DURATION = round(sum(FORMAT_001_TIMING.values()), 3)  # 24.0
 
 # Which roles are footage vs. engine-generated. Fixed for v1 — a role's TYPE
 # is part of the format definition, not something per-client config changes.
@@ -77,7 +75,6 @@ ROLE_TYPES: dict[str, str] = {
     "USP": "tekstkaart",
     "DESIRE": "footage",
     "CTA": "overlay",
-    "BRAND": "logo",
 }
 FOOTAGE_ROLES = [r for r in FORMAT_001_ROLE_ORDER if ROLE_TYPES[r] == "footage"]  # HERO, EXPERIENCE, DESIRE
 
@@ -122,15 +119,13 @@ def build_format_001_edl(
     # Fallback rules for missing/blank text inputs (explicitly requested):
     # a block never loses its screen time in v1 — it shows a safer generic
     # line instead, so a thin form submission still produces a complete,
-    # correctly-timed 32.5s ad rather than an error or a blank card.
+    # correctly-timed 24.0s ad rather than an error or a blank card.
     hook_text = (headline or "").strip() or (business_name or "NU").strip().upper()
     usp_text = (usp_text or "").strip() or hook_text
-    brand_text = (business_name or "").strip() or "ADMAZING"
     cta_text = (cta or "").strip() or "BESTEL NU"
 
     role_content: dict[str, str] = {
         "HOOK": hook_text,
-        "BRAND": brand_text,
         "USP": usp_text,
         "CTA": cta_text,
     }
