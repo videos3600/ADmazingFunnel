@@ -77,7 +77,7 @@
 
       <div class="field">
         <label>Sleep hier je foto's en video's</label>
-        <p class="field-note">Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.</p>
+        <p class="field-note" id="duration-note">Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.</p>
         <div class="dropzone" id="dropzone" tabindex="0">
           <div class="dropzone-hint" id="dropzone-hint">Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span></div>
           <div class="media-grid" id="media-grid"></div>
@@ -109,7 +109,7 @@
           <label for="template">Template</label>
           <select id="template" name="template">
             {% for t in templates %}
-            <option value="{{ t }}">{{ t }}</option>
+            <option value="{{ t }}" {% if t == format_001_template %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
           </select>
         </div>
