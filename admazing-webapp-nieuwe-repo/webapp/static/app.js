@@ -13,6 +13,7 @@
   const makeAnotherBtn = document.getElementById("make-another");
   const templateSelect = document.getElementById("template");
   const uspField = document.getElementById("usp-field");
+  const durationNote = document.getElementById("duration-note");
 
   // The USP text field only means anything for Format001 (its fixed USP
   // block — see edl/format_001.py) — every other template ignores it
@@ -22,8 +23,52 @@
     if (!templateSelect || !uspField) return;
     uspField.hidden = templateSelect.value !== "Format001";
   }
+
+  // Live "how long will this be" estimate, updated on every add/remove and
+  // on template change — mirrors edl/format_001.py's build_format_001_edl
+  // EXACTLY: base 6 blocks (HOOK/HERO/EXPERIENCE/USP/DESIRE/CTA, cycling
+  // through whatever's uploaded if fewer than 3 clips), +1 extra "MOMENT"
+  // block per clip past the base 3, capped at 2 extras — so 8 blocks / 32s
+  // is the ceiling on 5+ uploaded clips. If MAX_BLOCKS / the base role
+  // count / BLOCK_DURATION ever change there, update the constants below
+  // to match (there's no shared config between Python and this file).
+  // Only Format001 is block-based — other templates don't have a fixed
+  // per-block duration, so they just get a plain file count here.
+  function formatDurationNote(nClips, template) {
+    if (template !== "Format001") {
+      return nClips > 0
+        ? `${nClips} bestand${nClips === 1 ? "" : "en"} geselecteerd.`
+        : "Sleep je foto's en video's hierboven naar binnen.";
+    }
+    if (nClips === 0) {
+      return "Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.";
+    }
+    const BASE_BLOCKS = 6;
+    const BASE_FOOTAGE = 3;
+    const MAX_EXTRA_BLOCKS = 2;
+    const BLOCK_SECONDS = 4;
+    const MAX_USED_CLIPS = BASE_FOOTAGE + MAX_EXTRA_BLOCKS; // 5
+    const extraBlocks = Math.max(0, Math.min(nClips - BASE_FOOTAGE, MAX_EXTRA_BLOCKS));
+    const blocks = BASE_BLOCKS + extraBlocks;
+    const seconds = blocks * BLOCK_SECONDS;
+    const unused = Math.max(0, nClips - MAX_USED_CLIPS);
+    let text = `Je advertentie wordt ongeveer ${seconds} seconden (${blocks} blokken van 4 sec).`;
+    if (unused > 0) {
+      text += ` Let op: alleen de eerste ${MAX_USED_CLIPS} bestanden worden gebruikt — ${unused} bestand${unused === 1 ? "" : "en"} ${unused === 1 ? "valt" : "vallen"} erbuiten.`;
+    }
+    return text;
+  }
+
+  function syncDurationNote() {
+    if (!durationNote) return;
+    durationNote.textContent = formatDurationNote(selectedFiles.length, templateSelect ? templateSelect.value : "");
+  }
+
   if (templateSelect) {
-    templateSelect.addEventListener("change", syncUspFieldVisibility);
+    templateSelect.addEventListener("change", () => {
+      syncUspFieldVisibility();
+      syncDurationNote();
+    });
     syncUspFieldVisibility();
   }
 
@@ -46,6 +91,7 @@
   function renderMediaGrid() {
     mediaGrid.innerHTML = "";
     if (dropzoneHint) dropzoneHint.hidden = selectedFiles.length > 0;
+    syncDurationNote();
 
     selectedFiles.forEach((f, i) => {
       const tile = document.createElement("div");
