@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from edl.simple_generator import build_simple_edl, MIN_CLIP_DURATION  # noqa: E402
-from edl.format_001 import build_format_001_edl  # noqa: E402
+from edl.format_001 import build_format_001_edl, MAX_USED_CLIPS  # noqa: E402
 from edl.schema import EDL  # noqa: E402
 from webapp.logo_cleanup import clean_logo_background  # noqa: E402
 from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
@@ -334,7 +334,7 @@ def _read_status(job_dir: Path) -> dict | None:
 
 def _run_render_job(
     job_id: str, job_dir: Path, edl: EDL, output_path: Path, clip_filenames: list[str],
-    logo_cleanup_status: str = "",
+    logo_cleanup_status: str = "", unused_clip_count: int = 0,
 ) -> None:
     """The actual render, now off the request thread. Every step that can
     raise is inside this try block so a crash always reaches status.json
@@ -373,6 +373,15 @@ def _run_render_job(
             # log lookup. See webapp/logo_cleanup.py for what each status
             # value means.
             logo_cleanup=logo_cleanup_status or "(geen logo)",
+            # Actual block count / duration Format 001 ended up building
+            # (edl.duration already accounts for the dynamic block count —
+            # see edl/format_001.py) — the browser's own live estimate
+            # (webapp/static/app.js) uses the same arithmetic ahead of time,
+            # this is the confirmed, post-render number. 0/"" for every
+            # other template, which isn't block-based.
+            block_count=len(edl.blocks),
+            video_duration=edl.duration if edl.blocks else None,
+            unused_clip_count=unused_clip_count,
         )
     except Exception as exc:  # noqa: BLE001 — surface a readable error to the polling UI
         traceback.print_exc()
@@ -395,7 +404,14 @@ def _font_css_family(key: str) -> str:
 def index():
     return render_template(
         "index.html",
-        templates=sorted(TEMPLATES.keys()) + [FORMAT_001_TEMPLATE],
+        # Format001 first AND marked `selected` in the <option> (see
+        # index.html) — it's the actively developed format; leaving it last
+        # with no default meant the dropdown silently fell back to "Flash"
+        # (alphabetically first), which uses the OLD simple_generator with
+        # its own hardcoded 9.0s total (see edl/simple_generator.py's
+        # DEFAULT_TOTAL_DURATION) — not a Format001 bug, just the wrong
+        # template being selected by default.
+        templates=[FORMAT_001_TEMPLATE] + sorted(TEMPLATES.keys()),
         format_001_template=FORMAT_001_TEMPLATE,
         formats=list(FORMAT_RESOLUTIONS.keys()),
         music_groups=MUSIC_GROUPS,
@@ -430,7 +446,11 @@ def generate():
         offer = (request.form.get("offer") or "").strip()
         cta_text = (request.form.get("cta_text") or "").strip()
         usp_text = (request.form.get("usp") or "").strip()  # Format 001 only — see build_format_001_edl's own fallback if left blank
-        template = request.form.get("template") or "Papercut"
+        # Falls back to the same template the form's own dropdown defaults
+        # to (see index()) — only matters for a request with no "template"
+        # field at all (malformed/scripted), since the real form always
+        # submits a value now that one <option> is explicitly `selected`.
+        template = request.form.get("template") or FORMAT_001_TEMPLATE
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
         style_choice = request.form.get("style") or DEFAULT_STYLE_KEY
@@ -515,6 +535,15 @@ def generate():
         # file) — render/pipeline.py looks it up in its own assets/fonts/
         # the same way it already resolves the default Anton file, so
         # nothing needs copying into the job's asset dir here.
+        # How many uploaded clips Format 001 WON'T use — only relevant past
+        # MAX_USED_CLIPS (5: the base 3 footage slots + the 2 extra MOMENT
+        # blocks the 8-block cap allows). No pro-subscription/paywall
+        # messaging here — this fase-1 test tool has no pricing tiers to
+        # gate behind, so this is a plain capacity notice, carried through
+        # to status.json the same way font_requested/font_used and
+        # logo_cleanup already are (see _run_render_job).
+        unused_clip_count = max(0, len(clip_filenames) - MAX_USED_CLIPS) if template == FORMAT_001_TEMPLATE else 0
+
         if template == FORMAT_001_TEMPLATE:
             edl = build_format_001_edl(
                 business_name=business_name,
@@ -555,7 +584,7 @@ def generate():
         _write_status(job_dir, status="queued")
         thread = threading.Thread(
             target=_run_render_job,
-            args=(job_id, job_dir, edl, output_path, clip_filenames, logo_cleanup_status),
+            args=(job_id, job_dir, edl, output_path, clip_filenames, logo_cleanup_status, unused_clip_count),
             daemon=True,
         )
         thread.start()
