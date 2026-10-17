@@ -398,6 +398,14 @@ def _apply_look(renderer, video_path: Path, resolution: tuple[int, int], seed: i
         "-i", str(overlay_path),
         "-filter_complex", filter_complex,
         "-map", "[out]",
+        # Explicit yuv420p: this is now also used as the final step of a
+        # standalone footage-run segment that gets concat-demuxer "-c copy"
+        # joined against the rest of a Format 001 block timeline
+        # (render/block_pipeline.py) — the same class of bug the raw-pipe
+        # encoders elsewhere in this template set already guard against
+        # (see e.g. shake.py's _encode_shake_burst comment), just worth
+        # being explicit here too rather than trusting libx264's default.
+        "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         str(out_path),
     ])
