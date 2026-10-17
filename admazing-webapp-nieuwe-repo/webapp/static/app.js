@@ -1,7 +1,8 @@
 (function () {
   const dropzone = document.getElementById("dropzone");
   const footageInput = document.getElementById("footage-input");
-  const fileList = document.getElementById("file-list");
+  const mediaGrid = document.getElementById("media-grid");
+  const dropzoneHint = document.getElementById("dropzone-hint");
   const form = document.getElementById("generate-form");
   const formError = document.getElementById("form-error");
   const progressView = document.getElementById("progress-view");
@@ -29,7 +30,12 @@
   // Selected files live here (not directly in the <input>) so drag-and-drop
   // and click-to-browse can both add to the same growing list, with a
   // remove (x) per file — a native file input can't do partial removal.
+  // selectedUrls mirrors selectedFiles 1:1 (same index) — an object URL per
+  // file, created once on add and revoked once on removal/reset, so the
+  // person can actually SEE each photo/video they added, not just its
+  // filename.
   let selectedFiles = [];
+  let selectedUrls = [];
 
   function syncInputFromSelection() {
     const dt = new DataTransfer();
@@ -37,33 +43,73 @@
     footageInput.files = dt.files;
   }
 
-  function renderFileList() {
-    fileList.innerHTML = "";
+  function renderMediaGrid() {
+    mediaGrid.innerHTML = "";
+    if (dropzoneHint) dropzoneHint.hidden = selectedFiles.length > 0;
+
     selectedFiles.forEach((f, i) => {
-      const li = document.createElement("li");
-      const label = document.createElement("span");
-      label.textContent = f.name;
+      const tile = document.createElement("div");
+      tile.className = "media-tile";
+      // Clicks on an existing thumbnail (e.g. hitting native video controls
+      // to preview it) shouldn't re-trigger the dropzone's click-to-browse.
+      tile.addEventListener("click", (e) => e.stopPropagation());
+
+      if (f.type.startsWith("video/")) {
+        const video = document.createElement("video");
+        video.src = selectedUrls[i];
+        video.muted = true;
+        video.playsInline = true;
+        video.controls = true;
+        video.preload = "metadata";
+        tile.appendChild(video);
+      } else {
+        const img = document.createElement("img");
+        img.src = selectedUrls[i];
+        img.alt = f.name;
+        tile.appendChild(img);
+      }
+
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
+      removeBtn.className = "media-tile-remove";
       removeBtn.textContent = "×";
       removeBtn.setAttribute("aria-label", `Verwijder ${f.name}`);
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
+        URL.revokeObjectURL(selectedUrls[i]);
         selectedFiles.splice(i, 1);
+        selectedUrls.splice(i, 1);
         syncInputFromSelection();
-        renderFileList();
+        renderMediaGrid();
       });
-      li.appendChild(label);
-      li.appendChild(removeBtn);
-      fileList.appendChild(li);
+      tile.appendChild(removeBtn);
+
+      mediaGrid.appendChild(tile);
     });
+
+    const addTile = document.createElement("button");
+    addTile.type = "button";
+    addTile.className = "media-tile-add";
+    addTile.textContent = "+";
+    addTile.setAttribute("aria-label", "Foto of video toevoegen");
+    addTile.addEventListener("click", (e) => {
+      e.stopPropagation();
+      footageInput.click();
+    });
+    mediaGrid.appendChild(addTile);
   }
 
   function addFiles(fileListLike) {
-    Array.from(fileListLike).forEach((f) => selectedFiles.push(f));
+    Array.from(fileListLike).forEach((f) => {
+      selectedFiles.push(f);
+      selectedUrls.push(URL.createObjectURL(f));
+    });
     syncInputFromSelection();
-    renderFileList();
+    renderMediaGrid();
   }
+
+  // Shows the single "+" add-tile even before anything has been uploaded.
+  renderMediaGrid();
 
   dropzone.addEventListener("click", () => footageInput.click());
   dropzone.addEventListener("keydown", (e) => {
@@ -206,9 +252,11 @@
   });
 
   makeAnotherBtn.addEventListener("click", () => {
+    selectedUrls.forEach((url) => URL.revokeObjectURL(url));
     selectedFiles = [];
+    selectedUrls = [];
     syncInputFromSelection();
-    renderFileList();
+    renderMediaGrid();
     resultVideo.pause();
     resultVideo.removeAttribute("src");
     resultVideo.load();
