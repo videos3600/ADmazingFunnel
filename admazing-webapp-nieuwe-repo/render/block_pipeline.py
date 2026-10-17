@@ -74,8 +74,13 @@ def _text_card(
     text: str, font_path: str, resolution: tuple[int, int], duration: float,
     work_dir: Path, index: int, *, accent_bg: bool = False, logo_path: Path | None = None,
 ) -> Path:
-    """HOOK/USP (plain tekstkaart) and BRAND (logo) blocks: every word gets
-    its OWN line, stacked top to bottom and popped in with a short stagger.
+    """HOOK/USP (plain tekstkaart) blocks: every word gets its OWN line,
+    stacked top to bottom and popped in with a short stagger. Also still
+    used for a "logo" block type if one is ever constructed again (it
+    accepts `logo_path`) — Format 001 as of Oct 17 2026 no longer builds a
+    standalone BRAND/"logo" block (brand only shows as HERO's overlay
+    badge, see `_apply_logo_overlay` below), so this branch is currently
+    unreachable from render_format_001_edl, kept for forward-compat.
 
     Previously all words were joined onto ONE line, sized to fit only the
     LONGEST WORD's width — fine for a single word, but a multi-word phrase
