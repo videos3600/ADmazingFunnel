@@ -64,13 +64,13 @@ BlockType = Literal["footage", "tekstkaart", "logo", "overlay"]
 @dataclass
 class Block:
     """One slot in a format's fixed timeline (Format 001:
-    HOOK -> HERO -> EXPERIENCE -> USP -> DESIRE -> CTA -> BRAND — see
-    edl/format_001.py). BRAND appears TWICE in the finished video — once as
-    a badge overlaid on the back portion of HERO's footage (`logo_overlay`
-    below), once as its own closing card — but only the closing one is a
-    block of its own; measured from John's reference edit (Jonny's Burgers,
-    Oct 2026), where the early brand moment is a logo stamped onto the
-    product shot, not a separate full-screen card.
+    HOOK -> HERO -> EXPERIENCE -> USP -> DESIRE -> CTA — see
+    edl/format_001.py). BRAND is not a block of its own: it's only a badge
+    overlaid on the back portion of HERO's footage (`logo_overlay` below).
+    "BRAND" stays in the BlockRole Literal below for forward-compatibility
+    (a future format may give it a standalone block again), but Format 001
+    as of Oct 17 2026 never constructs one (client: "Brand mag in overlay.
+    Dus het worden er dat wat minder blocks.").
 
     Unlike ClipRef (a position on an already-assembled timeline), a Block IS
     the timeline: render/block_pipeline.py renders each one as its own
