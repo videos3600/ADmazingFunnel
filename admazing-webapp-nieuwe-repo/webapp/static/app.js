@@ -11,35 +11,25 @@
   const resultVideo = document.getElementById("result-video");
   const downloadLink = document.getElementById("download-link");
   const makeAnotherBtn = document.getElementById("make-another");
-  const templateSelect = document.getElementById("template");
-  const uspField = document.getElementById("usp-field");
   const durationNote = document.getElementById("duration-note");
 
-  // The USP text field only means anything for Format001 (its fixed USP
-  // block — see edl/format_001.py) — every other template ignores it
-  // entirely, so there's no point showing it and asking for text nobody
-  // reads.
-  function syncUspFieldVisibility() {
-    if (!templateSelect || !uspField) return;
-    uspField.hidden = templateSelect.value !== "Format001";
-  }
+  // The USP field is always relevant now — every ad is Format 001's block
+  // structure (see edl/format_001.py's "Third revision"), which always has
+  // a USP block, regardless of which edit style is picked in the dropdown
+  // below. There's no more per-template toggle to sync.
 
-  // Live "how long will this be" estimate, updated on every add/remove and
-  // on template change — mirrors edl/format_001.py's build_format_001_edl
-  // EXACTLY: base 6 blocks (HOOK/HERO/EXPERIENCE/USP/DESIRE/CTA, cycling
-  // through whatever's uploaded if fewer than 3 clips), +1 extra "MOMENT"
-  // block per clip past the base 3, capped at 2 extras — so 8 blocks / 32s
-  // is the ceiling on 5+ uploaded clips. If MAX_BLOCKS / the base role
-  // count / BLOCK_DURATION ever change there, update the constants below
-  // to match (there's no shared config between Python and this file).
-  // Only Format001 is block-based — other templates don't have a fixed
-  // per-block duration, so they just get a plain file count here.
-  function formatDurationNote(nClips, template) {
-    if (template !== "Format001") {
-      return nClips > 0
-        ? `${nClips} bestand${nClips === 1 ? "" : "en"} geselecteerd.`
-        : "Sleep je foto's en video's hierboven naar binnen.";
-    }
+  // Live "how long will this be" estimate, updated on every add/remove —
+  // mirrors edl/format_001.py's build_format_001_edl EXACTLY: base 6 blocks
+  // (HOOK/HERO/EXPERIENCE/USP/DESIRE/CTA, cycling through whatever's
+  // uploaded if fewer than 3 clips), +1 extra "MOMENT" block per clip past
+  // the base 3, capped at 2 extras — so 8 blocks / 32s is the ceiling on
+  // 5+ uploaded clips. If MAX_BLOCKS / the base role count / BLOCK_DURATION
+  // ever change there, update the constants below to match (there's no
+  // shared config between Python and this file). Every edit style in the
+  // dropdown shares this same block-based timing now — the "Template"
+  // dropdown no longer has a non-block-based option, so this no longer
+  // branches on which one is selected.
+  function formatDurationNote(nClips) {
     if (nClips === 0) {
       return "Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.";
     }
@@ -61,15 +51,7 @@
 
   function syncDurationNote() {
     if (!durationNote) return;
-    durationNote.textContent = formatDurationNote(selectedFiles.length, templateSelect ? templateSelect.value : "");
-  }
-
-  if (templateSelect) {
-    templateSelect.addEventListener("change", () => {
-      syncUspFieldVisibility();
-      syncDurationNote();
-    });
-    syncUspFieldVisibility();
+    durationNote.textContent = formatDurationNote(selectedFiles.length);
   }
 
   // Selected files live here (not directly in the <input>) so drag-and-drop
