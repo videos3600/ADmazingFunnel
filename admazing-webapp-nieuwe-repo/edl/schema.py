@@ -57,7 +57,13 @@ class MusicCue:
     file: str = ""       # resolved asset filename; empty until fase-1 music library exists
 
 
-BlockRole = Literal["HOOK", "HERO", "BRAND", "EXPERIENCE", "USP", "DESIRE", "CTA"]
+BlockRole = Literal["HOOK", "HERO", "BRAND", "EXPERIENCE", "USP", "DESIRE", "CTA", "MOMENT"]
+# "MOMENT" (added Oct 17 2026) is a generic extra footage beat — see
+# edl/format_001.py's dynamic block count. Unlike the other roles it can
+# appear MORE THAN ONCE in one EDL's `blocks` list (one per extra uploaded
+# clip beyond the base 3 footage slots); nothing in the schema or renderer
+# requires role values to be unique within a Block list, role is purely a
+# semantic/logging label.
 BlockType = Literal["footage", "tekstkaart", "logo", "overlay"]
 
 
