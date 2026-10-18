@@ -1,7 +1,8 @@
 """
-Format 001: a base 6-block structure —
-HOOK -> HERO (+ merk-badge overlay) -> EXPERIENCE -> USP -> DESIRE -> CTA —
-that GROWS up to MAX_BLOCKS (8) when more footage is uploaded.
+Format 001: a base 5-block structure —
+HOOK (hook text + merk-badge, both overlaid on the first footage clip) ->
+EXPERIENCE -> USP -> DESIRE -> CTA — that GROWS up to MAX_BLOCKS (8) when
+more footage is uploaded.
 
 Product decision (Oct 2026, confirmed with the client): v1 does NOT scale
 these numbers to a target total length. These are Format 001's one and only
@@ -12,13 +13,13 @@ Revision (Oct 17 2026, client: "Brand mag in overlay. Dus het worden er dat
 wat minder blocks. [...] Elke block duur 4 seconden. 1 Shot per blok
 graag."), superseding the earlier 7-block/32.5s table:
   - BRAND is no longer a standalone closing block — it is ONLY the overlay
-    badge stamped on HERO (see `logo_overlay` below). The client was
-    explicit that this overlay still needs its own "vette animatie" (a
-    punchier, more deliberate motion than today's simple pop-in badge) but
-    hasn't specified it yet ("Ik laat je nog weten hoe ik dat wil") — so
-    `_apply_logo_overlay` in render/block_pipeline.py is UNCHANGED for now
-    and stays a placeholder until that spec arrives. Do not polish that
-    animation preemptively.
+    badge stamped on the footage block that carries `logo_overlay` (see
+    below). The client was explicit that this overlay still needs its own
+    "vette animatie" (a punchier, more deliberate motion than today's
+    simple pop-in badge) but hasn't specified it yet ("Ik laat je nog weten
+    hoe ik dat wil") — so render/block_pipeline.py's badge compositing is
+    UNCHANGED in that respect and stays a placeholder until that spec
+    arrives. Do not polish that animation preemptively.
   - every block is a flat, equal 4.0s — no more per-role timing tuned to
     the reference edit's pacing (that was the 7-block table's whole
     premise; the client has now explicitly moved off it).
@@ -28,19 +29,19 @@ graag."), superseding the earlier 7-block/32.5s table:
 
 Second revision (same day, client: "Maak de blocken max 8."): block count
 now SCALES with how much footage is uploaded, instead of always being
-exactly 6. BASE_ROLE_ORDER (HOOK/HERO/EXPERIENCE/USP/DESIRE/CTA) is the
-floor — with 3 or fewer uploaded clips it behaves exactly as before
-(cycling through what's there, same as any earlier round). Every uploaded
-clip BEYOND the base 3 footage slots (HERO/EXPERIENCE/DESIRE) gets its own
-extra "MOMENT" footage block, inserted right before CTA, up to
-MAX_EXTRA_FOOTAGE_BLOCKS (2) — so the ceiling is 8 blocks / 32.0s on 5+
-uploaded clips. A 6th+ uploaded clip is NOT silently cycled into an
-existing slot and not shown anywhere — see build_format_001_edl's
-`unused_clip_count` docs below. There's no subscription/paywall messaging
-for this cap (nothing in this fase-1 test tool has a pricing tier to gate
-behind) — webapp/app.py just tells the uploader plainly how many clips
-won't make the cut, the same self-serve-diagnostic pattern already used for
-font_requested/font_used and logo_cleanup.
+fixed. BASE_ROLE_ORDER is the floor — with `len(BASE_FOOTAGE_ROLES)` or
+fewer uploaded clips it behaves exactly as before (cycling through what's
+there, same as any earlier round). Every uploaded clip BEYOND the base
+footage slots gets its own extra "MOMENT" footage block, inserted right
+before CTA, up to MAX_EXTRA_FOOTAGE_BLOCKS — so the ceiling is MAX_BLOCKS
+(8) blocks on a big enough upload. An upload beyond MAX_USED_CLIPS is NOT
+silently cycled into an existing slot and not shown anywhere — see
+build_format_001_edl's `unused_clip_count` docs below. There's no
+subscription/paywall messaging for this cap (nothing in this fase-1 test
+tool has a pricing tier to gate behind) — webapp/app.py just tells the
+uploader plainly how many clips won't make the cut, the same self-serve-
+diagnostic pattern already used for font_requested/font_used and
+logo_cleanup.
 
 Third revision (same day, client: "Format001 moet weg want elke edit moet
 standaard de Format001 hebben. Format ia de volgorde van blocks en niet de
@@ -53,11 +54,28 @@ gone; that dropdown now ONLY offers the six edit styles (Papercut/Rotator/
 Splitter/Shake/Flash/Zoom), which this function takes as `edit_style` and
 simply stores as the returned EDL's `template` field — see
 render/block_pipeline.py for how each style then gets applied to this
-format's footage blocks. Nothing about the block/role/timing logic below
-changed for this revision; only which caller builds the EDL (webapp/app.py
-calls this unconditionally now) and what `template` means downstream.
+format's footage blocks.
 
-Footage-role blocks (HERO, EXPERIENCE, DESIRE, and any extra MOMENT blocks)
+Fourth revision (same day, client: "Hooktekst moet op de eerste block samen
+de eerste (hookfootage) [...] USP mag wel in een aparte block."): the old
+standalone HOOK text card is GONE — the hook headline is now composited
+straight onto the FIRST footage block's own clip (that block's role stays
+named "HOOK", its `type` is now "footage" like any other footage block, and
+it also still carries the brand-badge overlay that used to live on the old
+"HERO" role — "HERO" is retired as a role entirely, folded into HOOK). USP
+is unaffected — client was explicit it stays its own tekstkaart block. This
+drops BASE_ROLE_ORDER from 6 roles to 5, which — through the exact same
+MAX_BLOCKS-driven formulas as the second revision above, unchanged — raises
+MAX_EXTRA_FOOTAGE_BLOCKS from 2 to 3 and MAX_USED_CLIPS from 5 to 6 as a
+direct, mechanical consequence (not a separate decision): one fewer base
+block leaves one more extra-block slot under the same MAX_BLOCKS=8 ceiling.
+The client also asked for this to be explained to the entrepreneur — see
+webapp/templates/index.html's new hook-explainer note above the dropzone,
+and webapp/static/app.js's formatDurationNote, whose block-count constants
+were updated to match this file's (still no shared config, see that
+function's own comment).
+
+Footage-role blocks (HOOK, EXPERIENCE, DESIRE, and any extra MOMENT blocks)
 are filled from the uploaded clips in UPLOAD ORDER — there is deliberately
 no vision/classification step in v1 (explicitly out of scope, same as
 automatic shot selection and product cut-outs). Manual per-clip role
@@ -65,17 +83,19 @@ assignment is a real v1 feature too (the client asked for "upload volgorde,
 of handmatig een rol per clip"), but has no UI yet — this round is schema +
 generator + render only, not a UI rebuild (explicit client instruction).
 `role_overrides` below is the seam a future per-clip role picker plugs into
-without changing this function's signature (it only covers the base 3
+without changing this function's signature (it only covers the base
 footage roles — not the dynamic MOMENT extras, since those don't have a
 single stable key to override).
 
-Non-footage blocks (HOOK, USP, CTA) are engine-generated text cards — see
+Non-footage blocks (USP, CTA) are engine-generated text cards — see
 render/block_pipeline.py for how they're actually drawn (reuses the exact
 same pop-in/CTA-badge look the punch-text overlay already uses elsewhere,
 so Format 001 doesn't introduce a third, inconsistent typography
-treatment). The brand moment is NOT a block of its own — it's the
-`logo_overlay` flag on the HERO block, composited onto that footage's own
-back portion (see render/block_pipeline.py's overlay logic).
+treatment). The brand moment and the hook headline are NOT blocks of their
+own — they're both composited straight onto the HOOK block's own footage
+(see render/block_pipeline.py's overlay logic), the headline early (to
+actually grab the viewer in the first instant) and the badge late (on the
+back ~40%, unchanged from before), timed so the two never show at once.
 """
 
 from __future__ import annotations
@@ -87,38 +107,41 @@ from .schema import EDL, Block, BlockRole, MusicCue
 # tuned to the reference edit in favour of one uniform number.
 BLOCK_DURATION = 4.0
 
-BASE_ROLE_ORDER: list[BlockRole] = ["HOOK", "HERO", "EXPERIENCE", "USP", "DESIRE", "CTA"]
+BASE_ROLE_ORDER: list[BlockRole] = ["HOOK", "EXPERIENCE", "USP", "DESIRE", "CTA"]
 
 # Which roles are footage vs. engine-generated. Fixed for v1 — a role's TYPE
 # is part of the format definition, not something per-client config changes.
 ROLE_TYPES: dict[str, str] = {
-    "HOOK": "tekstkaart",
-    "HERO": "footage",
+    "HOOK": "footage",  # hook text + brand badge, both overlaid on this block's own clip — see module docstring's "Fourth revision"
     "EXPERIENCE": "footage",
     "USP": "tekstkaart",
     "DESIRE": "footage",
     "CTA": "overlay",
-    "MOMENT": "footage",  # extra footage beat beyond the base 3 — see module docstring
+    "MOMENT": "footage",  # extra footage beat beyond the base footage slots — see module docstring
 }
-BASE_FOOTAGE_ROLES = [r for r in BASE_ROLE_ORDER if ROLE_TYPES[r] == "footage"]  # HERO, EXPERIENCE, DESIRE
+BASE_FOOTAGE_ROLES = [r for r in BASE_ROLE_ORDER if ROLE_TYPES[r] == "footage"]  # HOOK, EXPERIENCE, DESIRE
 
-# HERO carries the early brand moment as an overlay badge on its own footage
-# (see Block.logo_overlay / render/block_pipeline.py), not a separate block.
-HERO_LOGO_OVERLAY_ROLE: BlockRole = "HERO"
+# HOOK carries BOTH the hook headline (early) and the brand badge (late, back
+# ~40%) as overlays on its own footage — see Block.overlay_text /
+# Block.logo_overlay and render/block_pipeline.py's combined compositor.
+# "HERO" (the old separate footage role the badge used to live on) is
+# retired — folded into HOOK, see module docstring.
+HOOK_OVERLAY_ROLE: BlockRole = "HOOK"
 
 EXTRA_FOOTAGE_ROLE: BlockRole = "MOMENT"
 MAX_BLOCKS = 8
-MAX_EXTRA_FOOTAGE_BLOCKS = MAX_BLOCKS - len(BASE_ROLE_ORDER)  # 2
-# The most uploaded clips Format 001 will ever actually use — 3 base footage
-# slots + up to 2 extra MOMENT blocks. webapp/app.py uses this same number
-# to tell the uploader how many of their files won't make the cut.
-MAX_USED_CLIPS = len(BASE_FOOTAGE_ROLES) + MAX_EXTRA_FOOTAGE_BLOCKS  # 5
+MAX_EXTRA_FOOTAGE_BLOCKS = MAX_BLOCKS - len(BASE_ROLE_ORDER)  # 8 - 5 = 3
+# The most uploaded clips Format 001 will ever actually use — the base
+# footage slots + up to MAX_EXTRA_FOOTAGE_BLOCKS extra MOMENT blocks.
+# webapp/app.py uses this same number to tell the uploader how many of
+# their files won't make the cut.
+MAX_USED_CLIPS = len(BASE_FOOTAGE_ROLES) + MAX_EXTRA_FOOTAGE_BLOCKS  # 3 + 3 = 6
 
 
 def build_format_001_edl(
     *,
     business_name: str,
-    headline: str,            # HOOK card text
+    headline: str,            # HOOK text — now composited onto the first footage block's own clip, not a text card (see module docstring)
     cta: str,                 # CTA card text
     clip_filenames: list[str],
     edit_style: str,          # "Papercut" | "Rotator" | "Splitter" | "Shake" | "Flash" | "Zoom" — see render/block_pipeline.py
@@ -136,9 +159,9 @@ def build_format_001_edl(
     against render/templates.TEMPLATES itself, webapp/app.py already does
     that before calling in. `role_overrides` is an optional
     {role: clip_filename} map for a future manual per-clip assignment UI,
-    covering only the base 3 footage roles (HERO/EXPERIENCE/DESIRE) — any
+    covering only the base footage roles (HOOK/EXPERIENCE/DESIRE) — any
     role not present in it falls back to the upload-order cycling below (so
-    partial manual overrides, e.g. only HERO pinned, still work). The
+    partial manual overrides, e.g. only HOOK pinned, still work). The
     EDL's own `len(edl.blocks)` / `edl.duration` after this returns are the
     source of truth for how many blocks and how many seconds actually got
     built; webapp/app.py reads those rather than guessing.
@@ -148,17 +171,17 @@ def build_format_001_edl(
 
     role_overrides = role_overrides or {}
     n_clips = len(clip_filenames)
-    n_base_footage = len(BASE_FOOTAGE_ROLES)  # 3
+    n_base_footage = len(BASE_FOOTAGE_ROLES)
 
-    # How many EXTRA footage blocks (beyond the base 3) this upload earns —
-    # one per clip past the base, capped at MAX_EXTRA_FOOTAGE_BLOCKS so the
-    # format never exceeds MAX_BLOCKS total. A thin upload (<=3 clips) gets
-    # zero extras and behaves exactly as the base 6-block format always has.
+    # How many EXTRA footage blocks (beyond the base footage slots) this
+    # upload earns — one per clip past the base, capped at
+    # MAX_EXTRA_FOOTAGE_BLOCKS so the format never exceeds MAX_BLOCKS total.
+    # A thin upload (<= the base footage slot count) gets zero extras and
+    # behaves exactly as the base format always has.
     extra_blocks_n = max(0, min(n_clips - n_base_footage, MAX_EXTRA_FOOTAGE_BLOCKS))
 
     # Inserted right before CTA — "a couple more product beats, then the
-    # call to action" reads naturally; HOOK/HERO/EXPERIENCE/USP/DESIRE never
-    # move.
+    # call to action" reads naturally; HOOK/EXPERIENCE/USP/DESIRE never move.
     role_order: list[BlockRole] = BASE_ROLE_ORDER[:-1] + [EXTRA_FOOTAGE_ROLE] * extra_blocks_n + [BASE_ROLE_ORDER[-1]]
 
     # Fallback rules for missing/blank text inputs (explicitly requested):
@@ -169,16 +192,18 @@ def build_format_001_edl(
     usp_text = (usp_text or "").strip() or hook_text
     cta_text = (cta or "").strip() or "BESTEL NU"
 
+    # HOOK is footage now (see module docstring), so it's not in here — its
+    # text goes on `overlay_text` below instead of `content`.
     role_content: dict[str, str] = {
-        "HOOK": hook_text,
         "USP": usp_text,
         "CTA": cta_text,
     }
 
-    # Base footage roles (HERO/EXPERIENCE/DESIRE) cycle through the upload
-    # exactly as before — unchanged behaviour for <=3 clips. Extra MOMENT
-    # blocks take clips sequentially starting right after the base 3 (never
-    # cycled — they only exist because those clips are actually there).
+    # Base footage roles (HOOK/EXPERIENCE/DESIRE) cycle through the upload
+    # exactly as before — unchanged behaviour for a thin upload. Extra
+    # MOMENT blocks take clips sequentially starting right after the base
+    # footage slots (never cycled — they only exist because those clips are
+    # actually there).
     blocks: list[Block] = []
     base_footage_seen = 0
     extra_footage_seen = 0
@@ -193,8 +218,12 @@ def build_format_001_edl(
                 base_footage_seen += 1
         else:
             content = role_content[role]
-        logo_overlay = role == HERO_LOGO_OVERLAY_ROLE
-        blocks.append(Block(role=role, type=btype, duration=BLOCK_DURATION, content=content, logo_overlay=logo_overlay))  # type: ignore[arg-type]
+        is_hook = role == HOOK_OVERLAY_ROLE
+        blocks.append(Block(
+            role=role, type=btype, duration=BLOCK_DURATION, content=content,
+            logo_overlay=is_hook,
+            overlay_text=hook_text if is_hook else "",
+        ))  # type: ignore[arg-type]
 
     return EDL(
         template=edit_style,  # type: ignore[arg-type]

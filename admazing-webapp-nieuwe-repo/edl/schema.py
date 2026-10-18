@@ -86,17 +86,25 @@ class Block:
     `content` means different things per `type`, same resolve-by-filename
     pattern as edl.font/edl.logo elsewhere in this schema:
       - "footage": the clip filename (must exist in assets_dir)
-      - "tekstkaart": the text to render (e.g. the HOOK line or USP line)
+      - "tekstkaart": the text to render (e.g. the USP line)
       - "logo": text shown alongside edl.logo (e.g. the business name) —
         content may be blank if edl.logo alone is enough
       - "overlay": the CTA line, stamped with the same badge style the
         punch-text CTA already uses elsewhere in this app
+
+    Revision (Oct 17 2026, client: "Hooktekst moet op de eerste block samen
+    de eerste (hookfootage)"): the HOOK line is no longer its own tekstkaart
+    block — it's now composited straight onto the first footage block's own
+    clip (see edl/format_001.py's "Fourth revision"). `overlay_text` below
+    carries that text; `content` on that same block still holds the clip
+    filename as any other "footage" block would.
     """
     role: BlockRole
     type: BlockType
     duration: float
     content: str = ""
     logo_overlay: bool = False  # "footage" blocks only — stamps edl.logo (or business_name) as a badge over this block's back portion
+    overlay_text: str = ""  # "footage" blocks only — the HOOK role's headline text, composited onto this block's own footage instead of its own text card (see the revision note above)
 
 
 @dataclass
