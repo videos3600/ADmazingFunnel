@@ -49,35 +49,37 @@ point of its block timing), not a continuous-push-in template like the
 punch overlay's Ken Burns effect. None of the six edit styles touch
 ken_burns either (always called with ken_burns=False) for the same reason.
 
-The HERO block additionally carries `logo_overlay=True` (see
-edl/format_001.py) — the "early brand moment" measured from John's
-reference edit (Jonny's Burgers): the logo appearing as a badge stamped
-onto the back ~40% of the product footage, not a separate full-screen
-card. HERO and EXPERIENCE are ALWAYS adjacent in Format 001's base role
-order, so HERO is always the first block of a 2+ run — meaning for a
-"pair" edit style, the badge has to be composited onto the WHOLE assembled
-run (HERO's clip already merged with EXPERIENCE's via that style's own
-transition), not onto a standalone HERO segment. See
-_apply_logo_overlay_in_window's docstring for how that's handled, and its
-known timing-precision caveat for Papercut/Rotator specifically.
+The HOOK block additionally carries `logo_overlay=True` AND `overlay_text`
+(see edl/format_001.py's "Fourth revision") — it now composites BOTH the
+hook headline (early, grabs the viewer immediately) and the brand badge
+(late, back ~40% — the "early brand moment" measured from John's reference
+edit, Jonny's Burgers) onto its own footage, timed so the two never show
+at once. "HERO" (the old separate role the badge used to live on) is
+retired, folded into HOOK. HOOK and EXPERIENCE are ALWAYS adjacent in
+Format 001's base role order, so HOOK is always the first block of a 2+
+run — meaning for a "pair" edit style, both overlays have to be composited
+onto the WHOLE assembled run (HOOK's clip already merged with
+EXPERIENCE's via that style's own transition), not onto a standalone HOOK
+segment. See _apply_hook_block_overlays' docstring for how that's handled,
+and its known timing-precision caveat for Papercut/Rotator specifically.
 
-"tekstkaart"/"logo"/"overlay" blocks are generated from scratch here: a
-solid brand-colour background with text/logo/CTA-badge composited on top
-via the SAME pop-in motion and CTA badge render/text_fx.py's punch-text
-overlay already uses (_render_pop_word_layer / _render_cta_badge / _place),
-so Format 001 doesn't introduce a third, inconsistent typography treatment
-alongside CAPTURE/pop.
+"tekstkaart"/"logo"/"overlay" blocks (USP/CTA — HOOK is footage now, see
+above) are generated from scratch here: a solid brand-colour background
+with text/logo/CTA-badge composited on top via the SAME pop-in motion and
+CTA badge render/text_fx.py's punch-text overlay already uses
+(_render_pop_word_layer / _render_cta_badge / _place), so Format 001
+doesn't introduce a third, inconsistent typography treatment alongside
+CAPTURE/pop.
 
 Known simplification (documented, not silently dropped): Papercut's
 persistent scrapbook frame treatment (border/tape/cracks/grain/grade — see
 render/templates/papercut.py's own module docstring, "that look is what's
 on screen for the whole ad") only decorates the footage run(s) it gets
 reused on here, via that style's own assemble(). It does NOT currently
-extend to the HOOK/USP/CTA text cards, since those are generated
-independently of any edit style. If the client wants the scrapbook look on
-every block (not just footage), that's the next thing to add — it would
-mean applying papercut._apply_look to the FINAL assembled video instead of
-per-run.
+extend to the USP/CTA text cards, since those are generated independently
+of any edit style. If the client wants the scrapbook look on every block
+(not just footage), that's the next thing to add — it would mean applying
+papercut._apply_look to the FINAL assembled video instead of per-run.
 """
 
 from __future__ import annotations
@@ -141,14 +143,15 @@ def _text_card(
     text: str, font_path: str, resolution: tuple[int, int], duration: float,
     work_dir: Path, index: int, *, accent_bg: bool = False, logo_path: Path | None = None,
 ) -> Path:
-    """HOOK/USP (plain tekstkaart) blocks: every word gets its OWN line,
+    """USP (plain tekstkaart) blocks: every word gets its OWN line,
     stacked top to bottom and popped in with a short stagger. Also still
     used for a "logo" block type if one is ever constructed again (it
     accepts `logo_path`) — Format 001 as of Oct 17 2026 no longer builds a
-    standalone BRAND/"logo" block (brand only shows as HERO's overlay
-    badge, see `_apply_logo_overlay`/`_apply_logo_overlay_in_window` below),
-    so this branch is currently unreachable from render_format_001_edl,
-    kept for forward-compat.
+    standalone BRAND/"logo" block, and HOOK is footage now too (see
+    edl/format_001.py's "Fourth revision" — brand badge and hook text both
+    show as overlays on the HOOK footage block instead, see
+    `_apply_hook_block_overlays` below), so this branch is currently
+    unreachable from render_format_001_edl, kept for forward-compat.
 
     Previously all words were joined onto ONE line, sized to fit only the
     LONGEST WORD's width — fine for a single word, but a multi-word phrase
@@ -262,145 +265,123 @@ def _cta_card(
     return _encode_frames(out_path, resolution, FPS, frames(), transparent=False)
 
 
-def _apply_logo_overlay(
-    segment_path: Path, logo_path: Path | None, business_name: str, font_path: str,
-    resolution: tuple[int, int], duration: float, work_dir: Path, index: int,
+def _apply_hook_block_overlays(
+    segment_path: Path, *, headline_text: str, logo_path: Path | None, business_name: str,
+    font_path: str, resolution: tuple[int, int], duration: float, work_dir: Path, index: int,
+    probe_segment: bool,
 ) -> Path:
-    """Stamps the brand logo (+ business name) as a badge over the back
-    ~40% of a HERO footage segment's own duration — see module docstring.
-    Used when HERO's segment is its own standalone clip: a burst edit style
-    (Shake/Flash/Zoom), or a run too short to need pairing at all. For a
-    "pair" style (Papercut/Rotator/Splitter), HERO is always merged with
-    EXPERIENCE into one combined run segment first — see
-    _apply_logo_overlay_in_window below for that case instead.
+    """Composites BOTH overlays the HOOK block can carry onto its own
+    footage, in a single pass (see edl/format_001.py's "Fourth revision",
+    client: "Hooktekst moet op de eerste block samen de eerste
+    (hookfootage)"):
+      - the hook headline itself — pops in almost immediately
+        (HOOK_TEXT_POP_IN) so it actually grabs the viewer in the first
+        instant, and clears again well before the badge's own window
+        starts (HOOK_TEXT_POP_OUT), so the two never show at once.
+      - the brand badge (logo + business name) — unchanged from the
+        earlier "early brand moment" design: pops in at ~60% through the
+        block and holds for the back ~40%.
 
-    Returns `segment_path` unchanged if there's neither a logo nor a
-    business name to show (a blank badge would just be a flash of nothing).
+    `probe_segment=True`: `segment_path` is the HOOK block's own standalone
+    clip (a burst edit style, or a run too short to need pairing) — its
+    REAL probed duration is used, not the block's nominal `duration` — a
+    source clip shorter than its assigned slot (_trim_and_normalize_clip
+    can't pad a short real video the way it pads a still image) still gets
+    trimmed to whatever length is actually available, and building either
+    overlay for the nominal (longer) duration would outlast the footage
+    (ffmpeg's overlay filter repeats the shorter input's last frame past
+    its end, a silent freeze-frame tail with no shortfall warning anywhere
+    otherwise).
 
-    Uses the segment's own PROBED duration, not the block's nominal
-    `duration` — a source clip shorter than its assigned block duration
-    (_trim_and_normalize_clip can't pad a short real video the way it pads
-    a still image, see that function's own docstring) still gets trimmed to
-    whatever length is actually available. Building the badge for the
-    nominal (longer) duration instead would outlast the footage, and
-    ffmpeg's overlay filter then repeats the footage's last frame for the
-    difference (its default eof_action) — a silent freeze-frame tail with
-    no footage-shortfall warning anywhere. Probing avoids that outright."""
-    actual_duration = probe_duration(segment_path)
-    if abs(actual_duration - duration) > 0.05:
-        print(
-            f"[format001] block {index} (logo overlay): source clip shorter than its "
-            f"assigned {duration:.2f}s — segment is only {actual_duration:.2f}s; "
-            f"badge timed to the real length, not the shortfall",
-            flush=True,
+    `probe_segment=False`: `segment_path` is a multi-block "pair" edit
+    style run (HOOK merged with EXPERIENCE by Papercut/Rotator/Splitter —
+    HOOK and EXPERIENCE are ALWAYS adjacent in Format 001's base role
+    order, so this is the path every pair style actually takes, not an
+    edge case). This can't probe the segment's own length to know "how
+    long is HOOK on screen" — `duration` (HOOK's own nominal
+    block.duration) is used instead, and both layers are windowed to only
+    [0, duration] of the run via an ffmpeg `enable=` expression, so neither
+    overlay bleeds into EXPERIENCE's own footage once HOOK's own span ends.
+    Known simplification: this windowing is approximate, not exact, for
+    Papercut and Rotator — both borrow a small overlap (<=0.4s) off HOOK's
+    tail for their transition into EXPERIENCE, so the badge in particular
+    can read as popping in a few tenths of a second into EXPERIENCE's
+    footage rather than right at HOOK's own end. Exact for Splitter, whose
+    pair plays for exactly top_clip.duration (= HOOK's own duration) with
+    no borrowed overlap. Fine for v1 — the badge's own "vette animatie" is
+    still an open spec item from the client anyway (see edl/format_001.py).
+
+    Returns `segment_path` unchanged if there's neither headline text, a
+    logo, nor a business name to show."""
+    if probe_segment:
+        actual_duration = probe_duration(segment_path)
+        if abs(actual_duration - duration) > 0.05:
+            print(
+                f"[format001] block {index} (hook overlays): source clip shorter than its "
+                f"assigned {duration:.2f}s — segment is only {actual_duration:.2f}s; "
+                f"overlays timed to the real length, not the shortfall",
+                flush=True,
+            )
+        duration = actual_duration
+
+    w, h = resolution
+    logo_layer = _logo_layer(logo_path, int(w * 0.30)) if logo_path and logo_path.exists() else None
+
+    biz_text_layer = None
+    label = (business_name or "").strip().upper()
+    if label:
+        fontsize = max(min(int(h * 0.04), int(w * 0.55 / (max(len(label), 1) * 0.6))), 22)
+        biz_text_layer = _render_pop_word_layer(label, font_path, fontsize, WHITE)
+
+    hook_words = (headline_text or "").upper().split()
+    hook_safe_width = w * 0.82
+    hook_layers = [
+        _render_pop_word_layer(
+            word, font_path,
+            max(min(int(h * 0.09), int(hook_safe_width / (max(len(word), 1) * 0.58))), 40),
+            WHITE,
         )
-    duration = actual_duration
+        for word in hook_words
+    ]
 
-    w, h = resolution
-    logo_layer = _logo_layer(logo_path, int(w * 0.30)) if logo_path and logo_path.exists() else None
-
-    text_layer = None
-    label = (business_name or "").strip().upper()
-    if label:
-        fontsize = max(min(int(h * 0.04), int(w * 0.55 / (max(len(label), 1) * 0.6))), 22)
-        text_layer = _render_pop_word_layer(label, font_path, fontsize, WHITE)
-
-    if logo_layer is None and text_layer is None:
+    if logo_layer is None and biz_text_layer is None and not hook_layers:
         return segment_path
 
-    pop_start = duration * 0.6  # badge appears for the back ~40% of the block
+    HOOK_POP_IN = 0.08              # seconds — near-immediate, this IS the attention-grab
+    HOOK_POP_OUT = duration * 0.55  # clears comfortably before the badge's own window starts
+    BADGE_POP_IN = duration * 0.6   # unchanged from the original "early brand moment" timing
+
+    hook_gap = h * 0.02
+    hook_stack_h = sum(l.height for l in hook_layers) + hook_gap * (len(hook_layers) - 1) if hook_layers else 0
+    hook_top = h * 0.40 - hook_stack_h / 2
 
     def frames():
         for idx in range(math.ceil(duration * FPS) + 2):
             t = idx / FPS
             canvas = Image.new("RGBA", resolution)
-            if t >= pop_start:
+            if hook_layers and HOOK_POP_IN <= t < HOOK_POP_OUT:
+                cy = hook_top + (hook_layers[0].height / 2)
+                for i, layer in enumerate(hook_layers):
+                    _place(canvas, layer, t, HOOK_POP_IN + 0.05 * i, w // 2, int(cy))
+                    cy += layer.height + hook_gap
+            if t >= BADGE_POP_IN:
                 if logo_layer is not None:
-                    _place(canvas, logo_layer, t, pop_start, w // 2, int(h * 0.82))
-                if text_layer is not None:
-                    _place(canvas, text_layer, t, pop_start + 0.05, w // 2, int(h * 0.91))
+                    _place(canvas, logo_layer, t, BADGE_POP_IN, w // 2, int(h * 0.82))
+                if biz_text_layer is not None:
+                    _place(canvas, biz_text_layer, t, BADGE_POP_IN + 0.05, w // 2, int(h * 0.91))
             yield canvas
 
-    badge_path = _encode_frames(Path(work_dir) / f"block_{index:02d}_badge.mov", resolution, FPS, frames(), True)
+    overlay_path = _encode_frames(Path(work_dir) / f"block_{index:02d}_hookoverlay.mov", resolution, FPS, frames(), True)
 
-    out_path = Path(work_dir) / f"block_{index:02d}_hero_overlay.mp4"
+    out_path = Path(work_dir) / f"block_{index:02d}_hook_composited.mp4"
+    if probe_segment:
+        filter_complex = "[0:v][1:v]overlay=0:0[out]"
+    else:
+        filter_complex = f"[0:v][1:v]overlay=0:0:enable='lt(t,{duration:.3f})'[out]"
     _run([
         "ffmpeg", "-y",
-        "-i", str(segment_path), "-i", str(badge_path),
-        "-filter_complex", "[0:v][1:v]overlay=0:0[out]",
-        "-map", "[out]",
-        "-an",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        str(out_path),
-    ])
-    return out_path
-
-
-def _apply_logo_overlay_in_window(
-    segment_path: Path, logo_path: Path | None, business_name: str, font_path: str,
-    resolution: tuple[int, int], window_duration: float, work_dir: Path, index: int,
-) -> Path:
-    """Same badge as _apply_logo_overlay, but for HERO blocks that got
-    merged into a multi-clip Papercut/Rotator/Splitter run instead of
-    staying a standalone segment — HERO and EXPERIENCE are ALWAYS adjacent
-    in Format 001's base role order (see edl/format_001.py), so for every
-    "pair" edit style this is the path HERO's badge actually takes, not an
-    edge case.
-
-    `segment_path` here is the WHOLE assembled run (HERO's clip already
-    transitioned together with EXPERIENCE's, and possibly more), not just
-    HERO's own footage — so unlike _apply_logo_overlay this can't probe the
-    segment's own length to know "how long is HERO on screen": the caller
-    passes `window_duration` (HERO's own nominal block.duration) instead,
-    and the badge is windowed to only [0, window_duration] of the run via
-    an ffmpeg `enable=` expression — without it, overlay's default
-    eof_action would keep repeating the badge's last (fully popped-in,
-    static) frame for the REST of the run too, bleeding the brand badge
-    into EXPERIENCE's own footage.
-
-    Known simplification: this is approximate, not exact, for Papercut and
-    Rotator — both borrow a small overlap (<=0.4s) off HERO's tail for
-    their transition into EXPERIENCE, so HERO's visible span is a touch
-    shorter than `window_duration` and the badge can read as popping in a
-    few tenths of a second into EXPERIENCE's footage rather than right at
-    HERO's own end. Exact for Splitter, whose pair plays for exactly
-    top_clip.duration (= HERO's own duration) with no borrowed overlap.
-    Fine for v1 — the badge's own "vette animatie" is still an open spec
-    item from the client anyway (see edl/format_001.py); revisit the
-    windowing precision if it reads as visibly late once rendered."""
-    w, h = resolution
-    logo_layer = _logo_layer(logo_path, int(w * 0.30)) if logo_path and logo_path.exists() else None
-
-    text_layer = None
-    label = (business_name or "").strip().upper()
-    if label:
-        fontsize = max(min(int(h * 0.04), int(w * 0.55 / (max(len(label), 1) * 0.6))), 22)
-        text_layer = _render_pop_word_layer(label, font_path, fontsize, WHITE)
-
-    if logo_layer is None and text_layer is None:
-        return segment_path
-
-    duration = window_duration
-    pop_start = duration * 0.6
-
-    def frames():
-        for idx in range(math.ceil(duration * FPS) + 2):
-            t = idx / FPS
-            canvas = Image.new("RGBA", resolution)
-            if t >= pop_start:
-                if logo_layer is not None:
-                    _place(canvas, logo_layer, t, pop_start, w // 2, int(h * 0.82))
-                if text_layer is not None:
-                    _place(canvas, text_layer, t, pop_start + 0.05, w // 2, int(h * 0.91))
-            yield canvas
-
-    badge_path = _encode_frames(Path(work_dir) / f"run_{index:02d}_hero_badge.mov", resolution, FPS, frames(), True)
-
-    out_path = Path(work_dir) / f"run_{index:02d}_hero_overlay.mp4"
-    _run([
-        "ffmpeg", "-y",
-        "-i", str(segment_path), "-i", str(badge_path),
-        "-filter_complex", f"[0:v][1:v]overlay=0:0:enable='lt(t,{duration:.3f})'[out]",
+        "-i", str(segment_path), "-i", str(overlay_path),
+        "-filter_complex", filter_complex,
         "-map", "[out]",
         "-an",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
@@ -452,10 +433,12 @@ def _render_footage_run(
 
     if style in _PAIR_ASSEMBLERS and n >= 2:
         combined = _assemble_pair_run(renderer, style, run_blocks, resolution, run_start_index, edl_format)
-        if run_blocks[0].logo_overlay:
-            combined = _apply_logo_overlay_in_window(
-                combined, logo_path, business_name, font_path, resolution,
-                run_blocks[0].duration, renderer.work_dir, run_start_index,
+        if run_blocks[0].logo_overlay or run_blocks[0].overlay_text:
+            combined = _apply_hook_block_overlays(
+                combined, headline_text=run_blocks[0].overlay_text, logo_path=logo_path,
+                business_name=business_name, font_path=font_path, resolution=resolution,
+                duration=run_blocks[0].duration, work_dir=renderer.work_dir, index=run_start_index,
+                probe_segment=False,
             )
         return [combined]
 
@@ -491,8 +474,13 @@ def _render_footage_run(
                 f"intended total",
                 flush=True,
             )
-        if block.logo_overlay:
-            seg = _apply_logo_overlay(seg, logo_path, business_name, font_path, resolution, block.duration, renderer.work_dir, index)
+        if block.logo_overlay or block.overlay_text:
+            seg = _apply_hook_block_overlays(
+                seg, headline_text=block.overlay_text, logo_path=logo_path,
+                business_name=business_name, font_path=font_path, resolution=resolution,
+                duration=block.duration, work_dir=renderer.work_dir, index=index,
+                probe_segment=True,
+            )
         segments.append(seg)
 
     return segments
@@ -516,7 +504,7 @@ def render_format_001_edl(edl: EDL, assets_dir: Path, output_path: Path, work_di
         block = blocks[i]
         if block.type == "footage":
             # Collect the whole contiguous run of footage blocks starting
-            # here (HERO+EXPERIENCE, or DESIRE+any extra MOMENT blocks —
+            # here (HOOK+EXPERIENCE, or DESIRE+any extra MOMENT blocks —
             # see edl/format_001.py's role ordering; never more than those
             # two runs in one EDL, but this loop doesn't assume that).
             run_start = i
