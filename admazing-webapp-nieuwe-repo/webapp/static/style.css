@@ -363,6 +363,20 @@ input[type="file"] {
   margin: -2px 0 0;
 }
 
+/* The hook-explainer note (webapp/templates/index.html, above the
+   dropzone) is deliberately more prominent than a regular .field-note — it
+   explains WHY upload order matters (the first clip becomes the hook
+   block's own footage), so it needs to actually get read, not blend in. */
+.field-note-strong {
+  font-size: 13px;
+  color: var(--text);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: -2px 0 8px;
+}
+
 /* ---- media grid (upload previews — a row of rounded tiles, each either an
    actual thumbnail of what was added or a dashed "+" tile to add more, so
    the business owner can see WHAT they uploaded instead of just a filename

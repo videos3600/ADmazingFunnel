@@ -19,25 +19,27 @@
   // below. There's no more per-template toggle to sync.
 
   // Live "how long will this be" estimate, updated on every add/remove —
-  // mirrors edl/format_001.py's build_format_001_edl EXACTLY: base 6 blocks
-  // (HOOK/HERO/EXPERIENCE/USP/DESIRE/CTA, cycling through whatever's
-  // uploaded if fewer than 3 clips), +1 extra "MOMENT" block per clip past
-  // the base 3, capped at 2 extras — so 8 blocks / 32s is the ceiling on
-  // 5+ uploaded clips. If MAX_BLOCKS / the base role count / BLOCK_DURATION
-  // ever change there, update the constants below to match (there's no
-  // shared config between Python and this file). Every edit style in the
-  // dropdown shares this same block-based timing now — the "Template"
-  // dropdown no longer has a non-block-based option, so this no longer
-  // branches on which one is selected.
+  // mirrors edl/format_001.py's build_format_001_edl EXACTLY: base 5 blocks
+  // (HOOK/EXPERIENCE/USP/DESIRE/CTA — HOOK's own text is now overlaid on
+  // the first uploaded clip's footage, not its own block, see that
+  // module's "Fourth revision"), cycling through whatever's uploaded if
+  // fewer than 3 clips, +1 extra "MOMENT" block per clip past the base 3,
+  // capped at 3 extras — so 8 blocks / 32s is the ceiling on 6+ uploaded
+  // clips. If MAX_BLOCKS / the base role count / BLOCK_DURATION ever
+  // change there, update the constants below to match (there's no shared
+  // config between Python and this file). Every edit style in the dropdown
+  // shares this same block-based timing now — the "Template" dropdown no
+  // longer has a non-block-based option, so this no longer branches on
+  // which one is selected.
   function formatDurationNote(nClips) {
     if (nClips === 0) {
       return "Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.";
     }
-    const BASE_BLOCKS = 6;
+    const BASE_BLOCKS = 5;
     const BASE_FOOTAGE = 3;
-    const MAX_EXTRA_BLOCKS = 2;
+    const MAX_EXTRA_BLOCKS = 3;
     const BLOCK_SECONDS = 4;
-    const MAX_USED_CLIPS = BASE_FOOTAGE + MAX_EXTRA_BLOCKS; // 5
+    const MAX_USED_CLIPS = BASE_FOOTAGE + MAX_EXTRA_BLOCKS; // 6
     const extraBlocks = Math.max(0, Math.min(nClips - BASE_FOOTAGE, MAX_EXTRA_BLOCKS));
     const blocks = BASE_BLOCKS + extraBlocks;
     const seconds = blocks * BLOCK_SECONDS;
