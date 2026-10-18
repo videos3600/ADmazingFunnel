@@ -550,8 +550,9 @@ def generate():
         # the same way it already resolves the default Anton file, so
         # nothing needs copying into the job's asset dir here.
         # How many uploaded clips Format 001 WON'T use — only relevant past
-        # MAX_USED_CLIPS (5: the base 3 footage slots + the 2 extra MOMENT
-        # blocks the 8-block cap allows). No pro-subscription/paywall
+        # MAX_USED_CLIPS (6 as of edl/format_001.py's "Fourth revision": the
+        # base 3 footage slots + the 3 extra MOMENT blocks the 8-block cap
+        # now allows). No pro-subscription/paywall
         # messaging here — this fase-1 test tool has no pricing tiers to
         # gate behind, so this is a plain capacity notice, carried through
         # to status.json the same way font_requested/font_used and
