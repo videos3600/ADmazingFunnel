@@ -11,7 +11,7 @@
      from /fonts/<key> (see webapp/app.py's font_file route); render-time
      text animation never touches this CSS, it reads the same files off
      disk. */
-  {% for key, label, description, font_file, text_animation in styles %}
+  {% for key, label, description, font_file in styles %}
   @font-face {
     font-family: '{{ font_css_family(font_file) }}';
     src: url('/fonts/{{ font_file }}') format('truetype');
@@ -94,7 +94,7 @@
       <div class="field">
         <label>Stijl</label>
         <div class="style-choices" role="radiogroup" aria-label="Stijl">
-          {% for key, label, description, font_file, text_animation in styles %}
+          {% for key, label, description, font_file in styles %}
           <label class="style-choice">
             <input type="radio" name="style" value="{{ key }}" {% if key == default_style_key %}checked{% endif %}>
             <span class="style-choice-preview" style="font-family: '{{ font_css_family(font_file) }}', sans-serif;">Aa</span>
