@@ -46,6 +46,7 @@ from webapp.logo_cleanup import clean_logo_background  # noqa: E402
 from render.ffmpeg_utils import probe_duration, probe_resolution, run as ffmpeg_run  # noqa: E402
 from render.pipeline import FORMAT_RESOLUTIONS, _resolve_punch_font  # noqa: E402
 from render.block_pipeline import render_format_001_edl  # noqa: E402
+from render.motion_registry import DEFAULT_STYLE, STYLE_DEFS, style_choices  # noqa: E402
 from render.templates import TEMPLATES  # noqa: E402
 
 # Every ad is Format 001's block structure now, always (see
@@ -131,19 +132,23 @@ DEFAULT_TEXT_ANIMATION = TEXT_ANIMATIONS[0][0]
 # toggle, asks the ondernemer to play grafisch ontwerper ("Dan hebben we
 # gewoon Canva opnieuw gebouwd"). The format/stijl should decide the
 # typography, not the user: "De gebruiker kiest dus hooguit: Punchy / Clean
-# / Premium." Each style bundles a font + a text_animation (and later could
-# bundle more, e.g. a per-style motion treatment) behind one name.
+# / Premium." Each style now bundles a font AND a full HOOK/USP motion
+# treatment behind one name.
 # FONT_LIBRARY/FONT_GROUPS above stay in place unused by this picker — the
 # client's own note: "Later kan Studio eventueel een beperkte fontoverride
 # krijgen", i.e. a possible future feature, not v1.
-# (key, label, description, font_file, text_animation)
-STYLES = [
-    ("punchy", "Punchy", "Stevig, uppercase, cascade-opbouw — voor een scherpe aanbieding", "stoer/BebasNeue-Regular.ttf", "capture"),
-    ("clean", "Clean", "Rustig en strak — voor een zakelijke, nette uitstraling", "strak/Oswald-Regular.ttf", "pop"),
-    ("premium", "Premium", "Subtiel en verfijnd — voor een premium uitstraling", "elegant/PlayfairDisplay-Regular.ttf", "pop"),
-]
-DEFAULT_STYLE_KEY = STYLES[0][0]
-STYLE_LIBRARY = {key: (font_file, text_animation) for key, _, _, font_file, text_animation in STYLES}
+#
+# Revision (Oct 25 2026, client: "Dat style moet de motion language van de
+# advertentie echt zichtbaar sturen"): this list used to be defined here,
+# independently of the render side — a second, easy-to-drift-apart source
+# of truth for "which font does style X use". It's now read straight from
+# render/motion_registry.py (which also carries, per style, the preset
+# class render/block_pipeline.py actually draws HOOK/USP with) — ONE place
+# decides a style's font, nowhere else. "Bold" is new here too (the
+# registry's 4th style, alongside the original Punchy/Clean/Premium three).
+STYLES = style_choices()  # (key, label, description, font_file) — see render/motion_registry.py
+DEFAULT_STYLE_KEY = DEFAULT_STYLE
+STYLE_FONTS = {key: font_file for key, _, _, font_file in STYLES}
 
 # Display name per genre-folder — John's own taxonomy (assets/music/<slug>/),
 # built from his real catalog (he produces his own music; some tracks are
@@ -468,9 +473,15 @@ def generate():
         output_format = request.form.get("format") or "9:16"
         music_choice = request.form.get("music") or "upbeat"
         style_choice = request.form.get("style") or DEFAULT_STYLE_KEY
-        if style_choice not in STYLE_LIBRARY:
+        if style_choice not in STYLE_DEFS:
             style_choice = DEFAULT_STYLE_KEY
-        font_filename, text_animation = STYLE_LIBRARY[style_choice]
+        # font_filename is only echoed into status.json below (see
+        # _run_render_job) for the "which font did this actually use"
+        # self-serve diagnostic — build_format_001_edl resolves the REAL
+        # font used at render time from `style_choice` itself, via the same
+        # render/motion_registry.py this value comes from, so the two can
+        # never drift apart.
+        font_filename = STYLE_FONTS[style_choice]
 
         if not business_name:
             return jsonify(ok=False, error="Bedrijfsnaam is verplicht."), 400
@@ -545,10 +556,11 @@ def generate():
             shutil.copy2(music_src, job_dir / music_filename)
 
         # font_filename is already a bare "<categorie>/filename.ttf" key from
-        # STYLE_LIBRARY (resolved from the chosen style, not a per-upload
-        # file) — render/pipeline.py looks it up in its own assets/fonts/
-        # the same way it already resolves the default Anton file, so
-        # nothing needs copying into the job's asset dir here.
+        # render/motion_registry.py's STYLE_DEFS (resolved from the chosen
+        # style, not a per-upload file) — render/pipeline.py looks it up in
+        # its own assets/fonts/ the same way it already resolves the
+        # default Anton file, so nothing needs copying into the job's asset
+        # dir here.
         # How many uploaded clips Format 001 WON'T use — only relevant past
         # MAX_USED_CLIPS (6 as of edl/format_001.py's "Fourth revision": the
         # base 3 footage slots + the 3 extra MOMENT blocks the 8-block cap
@@ -572,7 +584,7 @@ def generate():
             music_file=music_filename,
             logo=logo_filename,
             font_file=font_filename,
-            text_animation=text_animation,
+            style=style_choice,
         )
 
         output_path = RESULT_DIR / f"{job_id}.mp4"
