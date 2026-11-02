@@ -92,6 +92,7 @@ from PIL import Image
 from edl.schema import EDL, ClipRef
 from render.ffmpeg_utils import probe_duration
 from render.ffmpeg_utils import run as _run
+from render.motion_registry import resolve_style, style_preset_class
 from render.pipeline import Renderer, FORMAT_RESOLUTIONS, _resolve_punch_font
 from render.templates import flash as _flash
 from render.templates import papercut as _papercut
@@ -142,84 +143,49 @@ def _logo_layer(logo_path: Path, target_w: int) -> Image.Image | None:
 def _text_card(
     text: str, font_path: str, resolution: tuple[int, int], duration: float,
     work_dir: Path, index: int, *, accent_bg: bool = False, logo_path: Path | None = None,
+    style: str = "punchy",
 ) -> Path:
-    """USP (plain tekstkaart) blocks: every word gets its OWN line,
-    stacked top to bottom and popped in with a short stagger. Also still
-    used for a "logo" block type if one is ever constructed again (it
-    accepts `logo_path`) — Format 001 as of Oct 17 2026 no longer builds a
-    standalone BRAND/"logo" block, and HOOK is footage now too (see
-    edl/format_001.py's "Fourth revision" — brand badge and hook text both
-    show as overlays on the HOOK footage block instead, see
-    `_apply_hook_block_overlays` below), so this branch is currently
-    unreachable from render_format_001_edl, kept for forward-compat.
+    """USP (plain tekstkaart) block: driven by the SAME style -> motion
+    registry HOOK uses (render/motion_registry.py), with `compact=True` —
+    the "more compact/readable ... variant" half of each style's motion
+    family (see render/text_fx.py's preset docstrings). Also still used
+    for a "logo" block type if one is ever constructed again (it accepts
+    `logo_path`) — unreachable from render_format_001_edl today, same as
+    before this rewrite, kept for forward-compat.
 
-    Previously all words were joined onto ONE line, sized to fit only the
-    LONGEST WORD's width — fine for a single word, but a multi-word phrase
-    (e.g. "BINNEN 30 MINUTEN") then ran past the edges of the frame, since
-    nothing accounted for the full joined string's width. Client feedback:
-    "Zorg er wel voor dat de tekst goed te zien is! Mijn voorkeur is groot
-    en onder elkaar" (make sure the text is clearly visible, large and
-    stacked). Sizing each word for its OWN line fixes the overflow and lets
-    every word be considerably larger than before, since it no longer
-    shares width with the rest of the phrase.
-
-    Still the same _place() scale-bounce pop used everywhere else in this
-    app, staggered slightly per line — not CapturePreset's per-letter
-    cascade (the client also named "Capture" as an example animation).
-    CapturePreset draws two extra "echo" rows ±20% of the FULL frame
-    height above/below its own centre — built for one centered headline
-    with room to spare, not compact multi-line stacking; stacking two or
-    three of those close together overlaps their echo bands into a blur.
-    The staggered pop below is the animated version of this stack that
-    actually holds up; swap in CapturePreset per line later if the client
-    wants the literal cascade and is fine with looser line spacing to give
-    the echo bands room."""
+    Revision (Oct 25 2026, client: "Dat style moet de motion language van
+    de advertentie echt zichtbaar sturen"): previously EVERY style rendered
+    USP with the exact same `_render_pop_word_layer` + `_place` scale-bounce
+    — `edl.text_animation` was threaded all the way here but never actually
+    read, so Punchy/Clean/Premium were visually identical. This now asks
+    the registry for the chosen style's preset class and lets IT draw the
+    whole stacked-word block (each preset's own `_build()` already does the
+    "never let a word run off the frame, shrink the whole stack if it
+    doesn't fit" sizing this function used to do by hand — see
+    `_StackedWordPreset._build` in render/text_fx.py). CapturePreset
+    (Punchy) is the one exception to "stacked word per line": at
+    `compact=True` it renders the WHOLE usp phrase as one single-line
+    cascade (echo_rows=1) rather than stacking it — see CapturePreset's own
+    docstring for why multiple CapturePreset instances can't safely share a
+    small box, and `_apply_hook_block_overlays` below for the matching HOOK
+    behaviour."""
     w, h = resolution
     bg_color = BG_ACCENT if accent_bg else BG_DARK
     fill = INK if accent_bg else WHITE
 
-    words = (text or "").upper().split() or ["ADMAZING"]
     safe_width = w * 0.86
-    layers = [
-        _render_pop_word_layer(
-            word, font_path,
-            max(min(int(h * 0.15), int(safe_width / (max(len(word), 1) * 0.58))), 48),
-            fill,
-        )
-        for word in words
-    ]
+    preset_cls = style_preset_class(style)
+    preset = preset_cls((text or "").strip() or "ADMAZING", font_path, fill, accent=ACCENT, compact=True)
 
     logo_layer = _logo_layer(logo_path, int(w * 0.28)) if logo_path else None
-
-    gap = h * 0.025
     logo_h = logo_layer.height if logo_layer is not None else 0
     logo_gap = h * 0.05 if logo_layer is not None else 0
-    stack_h = sum(l.height for l in layers) + gap * (len(layers) - 1)
-    total_h = logo_h + logo_gap + stack_h
 
-    # Scale the whole stack down uniformly if it would run past the top or
-    # bottom of the frame (a long headline with several words) — the same
-    # "never let it overflow" principle that drove this rewrite, just
-    # applied vertically instead of horizontally.
     vertical_budget = h * 0.86
-    if total_h > vertical_budget > 0:
-        scale = vertical_budget / total_h
-        layers = [l.resize((max(1, int(l.width * scale)), max(1, int(l.height * scale))), Image.LANCZOS) for l in layers]
-        if logo_layer is not None:
-            logo_layer = logo_layer.resize(
-                (max(1, int(logo_layer.width * scale)), max(1, int(logo_layer.height * scale))), Image.LANCZOS
-            )
-        logo_h = logo_layer.height if logo_layer is not None else 0
-        stack_h = sum(l.height for l in layers) + gap * (len(layers) - 1)
-        total_h = logo_h + logo_gap + stack_h
-
-    top = h / 2 - total_h / 2
+    text_budget_h = max(1.0, vertical_budget - logo_h - logo_gap)
+    top = h / 2 - vertical_budget / 2
     logo_cy = top + logo_h / 2 if logo_layer is not None else None
-    positions = []
-    cy = top + logo_h + logo_gap + (layers[0].height / 2 if layers else 0)
-    for layer in layers:
-        positions.append(cy)
-        cy += layer.height + gap
+    text_cy = top + logo_h + logo_gap + text_budget_h / 2
 
     def frames():
         for idx in range(math.ceil(duration * FPS) + 2):
@@ -227,8 +193,8 @@ def _text_card(
             canvas = Image.new("RGBA", resolution, bg_color)
             if logo_layer is not None and logo_cy is not None:
                 _place(canvas, logo_layer, t, 0.0, w // 2, int(logo_cy))
-            for i, (layer, pos) in enumerate(zip(layers, positions)):
-                _place(canvas, layer, t, 0.05 * (i + 1), w // 2, int(pos))
+            preset.draw(canvas, t, duration, cx=w // 2, cy=int(text_cy),
+                       target_w=safe_width, target_h=text_budget_h)
             yield canvas
 
     out_path = Path(work_dir) / f"block_{index:02d}_card.mp4"
@@ -268,7 +234,7 @@ def _cta_card(
 def _apply_hook_block_overlays(
     segment_path: Path, *, headline_text: str, logo_path: Path | None, business_name: str,
     font_path: str, resolution: tuple[int, int], duration: float, work_dir: Path, index: int,
-    probe_segment: bool,
+    probe_segment: bool, style: str = "punchy",
 ) -> Path:
     """Composites BOTH overlays the HOOK block can carry onto its own
     footage, in a single pass (see edl/format_001.py's "Fourth revision",
@@ -312,7 +278,19 @@ def _apply_hook_block_overlays(
     still an open spec item from the client anyway (see edl/format_001.py).
 
     Returns `segment_path` unchanged if there's neither headline text, a
-    logo, nor a business name to show."""
+    logo, nor a business name to show.
+
+    Revision (Oct 25 2026): the hook headline is now drawn by whichever
+    preset class `style` resolves to via render/motion_registry.py, with
+    `compact=False` — the full-impact HOOK degree of that style's motion
+    family (see render/text_fx.py's preset docstrings: HOOK = attention,
+    USP/`_text_card` above = readability, same family). Previously this
+    built per-word pop layers by hand, identically for every style — the
+    exact gap that made "Punchy" look no different from "Clean"/
+    "Premium" in the actual rendered output. The badge (logo + business
+    name) is intentionally UNCHANGED — its own "vette animatie" is still an
+    open spec item from the client (see edl/format_001.py), out of scope
+    for this round's HOOK/USP motion work."""
     if probe_segment:
         actual_duration = probe_duration(segment_path)
         if abs(actual_duration - duration) > 0.05:
@@ -333,37 +311,30 @@ def _apply_hook_block_overlays(
         fontsize = max(min(int(h * 0.04), int(w * 0.55 / (max(len(label), 1) * 0.6))), 22)
         biz_text_layer = _render_pop_word_layer(label, font_path, fontsize, WHITE)
 
-    hook_words = (headline_text or "").upper().split()
+    hook_text = (headline_text or "").strip()
     hook_safe_width = w * 0.82
-    hook_layers = [
-        _render_pop_word_layer(
-            word, font_path,
-            max(min(int(h * 0.09), int(hook_safe_width / (max(len(word), 1) * 0.58))), 40),
-            WHITE,
-        )
-        for word in hook_words
-    ]
+    hook_box_h = h * 0.32
+    preset_cls = style_preset_class(style)
+    hook_preset = preset_cls(hook_text, font_path, WHITE, accent=ACCENT, compact=False) if hook_text else None
 
-    if logo_layer is None and biz_text_layer is None and not hook_layers:
+    if logo_layer is None and biz_text_layer is None and hook_preset is None:
         return segment_path
 
     HOOK_POP_IN = 0.08              # seconds — near-immediate, this IS the attention-grab
     HOOK_POP_OUT = duration * 0.55  # clears comfortably before the badge's own window starts
+    HOOK_WINDOW = HOOK_POP_OUT - HOOK_POP_IN
     BADGE_POP_IN = duration * 0.6   # unchanged from the original "early brand moment" timing
-
-    hook_gap = h * 0.02
-    hook_stack_h = sum(l.height for l in hook_layers) + hook_gap * (len(hook_layers) - 1) if hook_layers else 0
-    hook_top = h * 0.40 - hook_stack_h / 2
 
     def frames():
         for idx in range(math.ceil(duration * FPS) + 2):
             t = idx / FPS
             canvas = Image.new("RGBA", resolution)
-            if hook_layers and HOOK_POP_IN <= t < HOOK_POP_OUT:
-                cy = hook_top + (hook_layers[0].height / 2)
-                for i, layer in enumerate(hook_layers):
-                    _place(canvas, layer, t, HOOK_POP_IN + 0.05 * i, w // 2, int(cy))
-                    cy += layer.height + hook_gap
+            if hook_preset is not None:
+                hook_preset.draw(
+                    canvas, t - HOOK_POP_IN, HOOK_WINDOW,
+                    cx=w // 2, cy=int(h * 0.40),
+                    target_w=hook_safe_width, target_h=hook_box_h,
+                )
             if t >= BADGE_POP_IN:
                 if logo_layer is not None:
                     _place(canvas, logo_layer, t, BADGE_POP_IN, w // 2, int(h * 0.82))
@@ -420,7 +391,7 @@ def _assemble_pair_run(
 def _render_footage_run(
     renderer: Renderer, style: str, run_blocks: list, run_start_index: int,
     resolution: tuple[int, int], *, business_name: str, font_path: str,
-    logo_path: Path | None, edl_format: str,
+    logo_path: Path | None, edl_format: str, motion_style: str = "punchy",
 ) -> list[Path]:
     """Builds the segment(s) for one contiguous run of `footage` blocks, in
     the chosen edit style — see module docstring for the burst-vs-pair
@@ -428,7 +399,14 @@ def _render_footage_run(
     overall segments list: length == len(run_blocks) for burst styles (and
     for any length-1 run), length == 1 for a pair-style run of 2+ blocks
     (that style's assemble() already concatenates the whole run into one
-    Path internally)."""
+    Path internally).
+
+    `style` here is the EDIT style (Papercut/Shake/...) — unrelated to
+    `motion_style`, the entrepreneur's Punchy/Bold/Clean/Premium pick (see
+    render/motion_registry.py), which only affects the HOOK text/badge
+    overlay via `_apply_hook_block_overlays` below. Two different "style"
+    concepts, named differently on purpose so they can never be confused
+    for each other at a call site."""
     n = len(run_blocks)
 
     if style in _PAIR_ASSEMBLERS and n >= 2:
@@ -438,7 +416,7 @@ def _render_footage_run(
                 combined, headline_text=run_blocks[0].overlay_text, logo_path=logo_path,
                 business_name=business_name, font_path=font_path, resolution=resolution,
                 duration=run_blocks[0].duration, work_dir=renderer.work_dir, index=run_start_index,
-                probe_segment=False,
+                probe_segment=False, style=motion_style,
             )
         return [combined]
 
@@ -479,7 +457,7 @@ def _render_footage_run(
                 seg, headline_text=block.overlay_text, logo_path=logo_path,
                 business_name=business_name, font_path=font_path, resolution=resolution,
                 duration=block.duration, work_dir=renderer.work_dir, index=index,
-                probe_segment=True,
+                probe_segment=True, style=motion_style,
             )
         segments.append(seg)
 
@@ -494,7 +472,12 @@ def render_format_001_edl(edl: EDL, assets_dir: Path, output_path: Path, work_di
     renderer = Renderer(assets_dir=assets_dir, work_dir=work_dir)
     font_path = _resolve_punch_font(edl)
     logo_path = (renderer.assets_dir / edl.logo) if edl.logo else None
-    style = edl.template  # the chosen edit style — see module docstring
+    style = edl.template  # the chosen EDIT style — see module docstring
+    # The chosen MOTION style (Punchy/Bold/Clean/Premium — unrelated to the
+    # edit style above, see render/motion_registry.py). Resolved once, here,
+    # the same "never break a render over a bad/missing field" posture
+    # _resolve_punch_font already uses for the font.
+    motion_style = resolve_style(getattr(edl, "style", "punchy"))
 
     segments: list[Path] = []
     blocks = edl.blocks
@@ -516,17 +499,17 @@ def render_format_001_edl(edl: EDL, assets_dir: Path, output_path: Path, work_di
                 _render_footage_run(
                     renderer, style, run_blocks, run_start, resolution,
                     business_name=edl.business_name, font_path=font_path,
-                    logo_path=logo_path, edl_format=edl.format,
+                    logo_path=logo_path, edl_format=edl.format, motion_style=motion_style,
                 )
             )
             i = j
         else:
             if block.type == "logo":
-                seg = _text_card(block.content, font_path, resolution, block.duration, renderer.work_dir, i, logo_path=logo_path)
+                seg = _text_card(block.content, font_path, resolution, block.duration, renderer.work_dir, i, logo_path=logo_path, style=motion_style)
             elif block.type == "overlay":
                 seg = _cta_card(block.content, font_path, resolution, block.duration, renderer.work_dir, i, logo_path=logo_path)
             else:  # "tekstkaart"
-                seg = _text_card(block.content, font_path, resolution, block.duration, renderer.work_dir, i)
+                seg = _text_card(block.content, font_path, resolution, block.duration, renderer.work_dir, i, style=motion_style)
             segments.append(seg)
             i += 1
 
