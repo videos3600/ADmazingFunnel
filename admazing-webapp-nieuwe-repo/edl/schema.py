@@ -139,7 +139,13 @@ class EDL:
     business_name: str = ""
     text_style: Literal["boxed", "minimal", "punch"] = "boxed"  # "Make it cleaner" toggles "minimal"; "punch" = bold in-your-face type
     font: str = ""         # filename in assets/fonts/ for text_style="punch"; "" = render engine's own default (Anton)
-    text_animation: Literal["capture", "pop"] = "capture"  # text_style="punch" only — "capture" = per-letter cascade/glitch (render/text_fx.py's CapturePreset), "pop" = calmer per-word scale-bounce
+    text_animation: Literal["capture", "pop"] = "capture"  # LEGACY — only read by render/pipeline.py's old render_punch_overlay() path, which webapp/app.py no longer calls. render/block_pipeline.py (the only active path) reads `style` below instead; kept so an old EDL/caller still round-trips.
+    # Revision (Oct 25 2026): the style picker now drives a full per-style
+    # MOTION preset (not just a font) — see render/motion_registry.py, the
+    # single source of truth for style -> {font, preset class}. This is the
+    # field render/block_pipeline.py actually reads to pick HOOK/USP motion;
+    # `text_animation` above is no longer consulted by that path at all.
+    style: Literal["punchy", "bold", "clean", "premium"] = "punchy"
 
     @property
     def duration(self) -> float:
@@ -164,4 +170,5 @@ class EDL:
             text_style=d.get("text_style", "boxed"),
             font=d.get("font", ""),
             text_animation=d.get("text_animation", "capture"),
+            style=d.get("style", "punchy"),
         )

@@ -100,6 +100,8 @@ back ~40%, unchanged from before), timed so the two never show at once.
 
 from __future__ import annotations
 
+from render.motion_registry import resolve_style, style_font
+
 from .schema import EDL, Block, BlockRole, MusicCue
 
 # Flat per-block duration (seconds) — every block, base or extra, is the
@@ -151,6 +153,7 @@ def build_format_001_edl(
     logo: str = "",
     font_file: str = "",
     text_animation: str = "capture",
+    style: str = "punchy",
     role_overrides: dict[str, str] | None = None,
 ) -> EDL:
     """Builds one Format 001 EDL. Block count scales with how much footage
@@ -165,7 +168,20 @@ def build_format_001_edl(
     EDL's own `len(edl.blocks)` / `edl.duration` after this returns are the
     source of truth for how many blocks and how many seconds actually got
     built; webapp/app.py reads those rather than guessing.
+
+    `style` ("punchy" | "bold" | "clean" | "premium") is the single choice
+    that now drives BOTH the font and the HOOK/USP motion — see
+    render/motion_registry.py, the one place that maps a style to its font
+    and preset class. `font_file`, if explicitly given, OVERRIDES the
+    style's own font (kept for forward-compat / a future per-style font
+    override, per webapp/app.py's own comment on that — "" means "use
+    whatever `style` says", which is what every current caller does).
+    `text_animation` is accepted but otherwise unused here now — it only
+    still matters to render/pipeline.py's legacy (unused by the webapp)
+    render path; `style` is what render/block_pipeline.py actually reads.
     """
+    style = resolve_style(style)
+    font_file = font_file or style_font(style)
     if not clip_filenames:
         raise ValueError("Format 001 needs at least one uploaded clip for the footage blocks")
 
@@ -236,4 +252,5 @@ def build_format_001_edl(
         text_style="punch",
         font=font_file,
         text_animation=text_animation,  # type: ignore[arg-type]
+        style=style,  # type: ignore[arg-type]
     )
