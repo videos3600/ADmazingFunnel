@@ -265,22 +265,39 @@ class Renderer:
         total_duration = duration if duration is not None else edl.duration
         if edl.music and edl.music.file and (self.assets_dir / edl.music.file).exists():
             music_path = self.assets_dir / edl.music.file
-            # Clamp the fade-out to the clip's own length: a clip shorter
-            # than the usual 0.6s fade (e.g. a quick test render with very
-            # short source clips) previously produced a negative afade
-            # 'st', which ffmpeg rejects outright ("Numerical result out
-            # of range") and fails the whole render.
             safe_duration = max(total_duration, 0.0)
-            fade_dur = min(0.6, safe_duration / 2)
-            fade_start = max(0.0, safe_duration - fade_dur)
-            if fade_dur > 0:
-                audio_filter = f"[1:a]volume=0.55,afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[a]"
-            else:
-                audio_filter = "[1:a]volume=0.55[a]"
+            # Product decision: the track plays once, straight through, from
+            # its own start, and is simply cut off when the ad ends — no
+            # loop, no crossfade, no fade-in, no fade-out (see conversation —
+            # a previous `-stream_loop -1` produced an audible restart to the
+            # track's intro partway through every ad once the track's own
+            # length ran out, and a crossfade-based "seamless loop" fix was
+            # explicitly rejected too: it masked the real problem instead of
+            # fixing it). The real fix is that every track in assets/music/
+            # is supposed to be long enough on its own (the library tracks
+            # are meant to run well over a minute; short test/placeholder
+            # files are the exception, not ads in general) — so a track
+            # that's shorter than the ad is a wrong asset in the library,
+            # not something the renderer should paper over by looping or
+            # blending it. Fail loudly instead, so a bad asset is obvious
+            # from the render error / status.json instead of silently
+            # producing a looping or truncated-early track.
+            track_duration = probe_duration(music_path)
+            if track_duration < safe_duration - 0.05:
+                raise RuntimeError(
+                    f"Music track {music_path.name!r} is only {track_duration:.2f}s, "
+                    f"shorter than this ad ({safe_duration:.2f}s). The renderer plays "
+                    f"a track once, straight through, and does not loop or crossfade "
+                    f"to cover a gap — that's a product decision, not a bug. This "
+                    f"track is the wrong asset for assets/music/: replace it with the "
+                    f"full-length original (library tracks should run well over a "
+                    f"minute) rather than shortening the renderer to work around it."
+                )
+            audio_filter = "[1:a]volume=0.55[a]"
             _run([
                 "ffmpeg", "-y",
                 "-i", str(video_path),
-                "-stream_loop", "-1", "-i", str(music_path),
+                "-i", str(music_path),
                 "-filter_complex", audio_filter,
                 "-map", "0:v", "-map", "[a]",
                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
