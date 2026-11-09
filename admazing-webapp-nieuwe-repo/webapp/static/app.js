@@ -13,6 +13,85 @@
   const makeAnotherBtn = document.getElementById("make-another");
   const durationNote = document.getElementById("duration-note");
 
+  // ---- the two top-level "views" (landing / funnel) plus progress/result,
+  // all siblings under <main> (progress-view/result-view sit outside the
+  // <form>, landing+funnel sit inside it — see index.html). Exactly one is
+  // visible at a time. ----
+  const viewLanding = document.getElementById("view-landing");
+  const viewFunnel = document.getElementById("view-funnel");
+  const howitworksBand = document.getElementById("howitworks-band");
+  const landingContinueBtn = document.getElementById("landing-continue-btn");
+
+  function showView(view) {
+    viewLanding.hidden = view !== "landing";
+    howitworksBand.hidden = view !== "landing";
+    viewFunnel.hidden = view !== "funnel";
+    progressView.hidden = view !== "progress";
+    resultView.hidden = view !== "result";
+  }
+  showView("landing");
+
+  // ---- the funnel itself: one panel visible at a time, reached either by
+  // auto-start (first file dropped on the landing dropzone — the whole
+  // point of this layout, client: "Als de klant de beelden upload moet er
+  // direct een funnel beginnen!") or by resuming where the person left off
+  // (the media chip's "wijzigen" sends them back to the landing dropzone
+  // without losing their place in the funnel). ----
+  const funnelPanels = Array.from(document.querySelectorAll(".funnel-panel"));
+  const funnelDots = Array.from(document.querySelectorAll(".funnel-dot"));
+  const funnelBack = document.getElementById("funnel-back");
+  const funnelMediaChip = document.getElementById("funnel-media-chip");
+  const funnelMediaChipCount = document.getElementById("funnel-media-chip-count");
+  const businessNameInput = document.getElementById("business_name");
+
+  let currentPanel = 1;
+  let funnelStarted = false;
+
+  function showPanel(n) {
+    currentPanel = n;
+    funnelPanels.forEach((p) => {
+      p.hidden = Number(p.dataset.panel) !== n;
+    });
+    funnelDots.forEach((d) => {
+      const step = Number(d.dataset.step);
+      d.classList.toggle("active", step === n);
+      d.classList.toggle("done", step < n);
+    });
+  }
+
+  function enterFunnel(panel) {
+    showView("funnel");
+    showPanel(panel);
+    funnelStarted = true;
+  }
+
+  function validatePanel1() {
+    if (!businessNameInput.value.trim()) {
+      businessNameInput.reportValidity();
+      return false;
+    }
+    return true;
+  }
+
+  document.querySelectorAll(".funnel-next").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (currentPanel === 1 && !validatePanel1()) return;
+      showPanel(Number(btn.dataset.goto));
+    });
+  });
+  document.querySelectorAll(".funnel-prev").forEach((btn) => {
+    btn.addEventListener("click", () => showPanel(Number(btn.dataset.goto)));
+  });
+  funnelBack.addEventListener("click", () => {
+    if (currentPanel <= 1) {
+      showView("landing");
+    } else {
+      showPanel(currentPanel - 1);
+    }
+  });
+  funnelMediaChip.addEventListener("click", () => showView("landing"));
+  landingContinueBtn.addEventListener("click", () => enterFunnel(currentPanel));
+
   // The USP field is always relevant now — every ad is Format 001's block
   // structure (see edl/format_001.py's "Third revision"), which always has
   // a USP block, regardless of which edit style is picked in the dropdown
@@ -56,6 +135,13 @@
     durationNote.textContent = formatDurationNote(selectedFiles.length);
   }
 
+  function syncMediaChip() {
+    const n = selectedFiles.length;
+    funnelMediaChipCount.textContent = `${n} bestand${n === 1 ? "" : "en"}`;
+    landingContinueBtn.hidden = n === 0;
+    landingContinueBtn.textContent = funnelStarted ? "Verder →" : "Verder →";
+  }
+
   // Selected files live here (not directly in the <input>) so drag-and-drop
   // and click-to-browse can both add to the same growing list, with a
   // remove (x) per file — a native file input can't do partial removal.
@@ -76,6 +162,7 @@
     mediaGrid.innerHTML = "";
     if (dropzoneHint) dropzoneHint.hidden = selectedFiles.length > 0;
     syncDurationNote();
+    syncMediaChip();
 
     selectedFiles.forEach((f, i) => {
       const tile = document.createElement("div");
@@ -130,12 +217,23 @@
   }
 
   function addFiles(fileListLike) {
+    const wasEmpty = selectedFiles.length === 0;
     Array.from(fileListLike).forEach((f) => {
       selectedFiles.push(f);
       selectedUrls.push(URL.createObjectURL(f));
     });
     syncInputFromSelection();
     renderMediaGrid();
+    // The funnel starts automatically the FIRST time footage lands here —
+    // client: "Als de klant de beelden upload moet er direct een funnel
+    // beginnen!" A later add (e.g. after using the media chip's
+    // "wijzigen" to come back and add more) never re-triggers this: it
+    // would yank someone back into the funnel mid-review. They use the
+    // landing's own "Verder →" button (or the funnel-back arrow) to
+    // return at their own pace instead.
+    if (wasEmpty && selectedFiles.length > 0 && !funnelStarted) {
+      enterFunnel(1);
+    }
   }
 
   // Shows the single "+" add-tile even before anything has been uploaded.
@@ -201,12 +299,6 @@
     progressSteps.forEach((li) => li.classList.add("done"));
   }
 
-  function showView(view) {
-    form.hidden = view !== "form";
-    progressView.hidden = view !== "progress";
-    resultView.hidden = view !== "result";
-  }
-
   // ---- status polling ----
   // The render runs server-side in a background thread (see webapp/app.py)
   // precisely so a flaky mobile connection can't kill it mid-render — this
@@ -250,6 +342,13 @@
 
     if (selectedFiles.length === 0) {
       formError.textContent = "Upload minstens één foto of video.";
+      showView("funnel");
+      showPanel(1);
+      return;
+    }
+    if (!validatePanel1()) {
+      showView("funnel");
+      showPanel(1);
       return;
     }
 
@@ -263,7 +362,8 @@
 
       if (!resp.ok || !data.ok) {
         stopProgressAnimation();
-        showView("form");
+        showView("funnel");
+        showPanel(3);
         formError.textContent = data.error || "Er ging iets mis bij het genereren.";
         return;
       }
@@ -276,7 +376,8 @@
       showView("result");
     } catch (err) {
       stopProgressAnimation();
-      showView("form");
+      showView("funnel");
+      showPanel(3);
       formError.textContent = err.message || "Kon geen verbinding maken met de server.";
     }
   });
@@ -291,6 +392,8 @@
     resultVideo.removeAttribute("src");
     resultVideo.load();
     form.reset();
-    showView("form");
+    funnelStarted = false;
+    showPanel(1);
+    showView("landing");
   });
 })();
