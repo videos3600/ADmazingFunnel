@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ADmazing — Upload je beelden. Krijg direct je advertentie.</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/png" href="/static/logo-mark.png">
 <style>
   /* One @font-face per stijl, so the picker below shows each option in its
      own real typeface instead of just naming it. The font FILES still come
@@ -24,149 +25,209 @@
 
 <header class="topbar">
   <div class="wrap topbar-inner">
-    <div class="logo">AD<span class="accent">mazing</span></div>
+    <div class="logo">
+      <img src="/static/logo-mark.png" alt="ADmazing" class="logo-mark">
+    </div>
     <div class="topbar-tag">interne testversie — fase 1</div>
   </div>
 </header>
 
-<main class="wrap hero">
-  <section class="hero-copy">
-    <h1>Upload je beelden.<br>Krijg direct je advertentie.</h1>
-    <p class="lead">ADmazing maakt automatisch een promotievideo van jouw foto's en clips — inclusief montage, tekst, muziek en call-to-action.</p>
-    <p class="fine">Geen montage-ervaring nodig. Geen ingewikkelde software.</p>
+<main class="wrap page">
 
-    <div class="preview-mock" aria-hidden="true">
-      <div class="preview-panel raw">
-        <span class="preview-label">RAW FOOTAGE</span>
-        <div class="preview-bars">
-          <div></div><div></div><div></div>
-        </div>
-      </div>
-      <div class="preview-arrow">→</div>
-      <div class="preview-panel done">
-        <span class="preview-label accent">ADMAZING</span>
-        <div class="preview-frame">
-          <div class="preview-caption">Jouw bedrijf<br><b>Bestel vandaag</b></div>
-        </div>
-      </div>
-    </div>
-  </section>
+  <form id="generate-form" class="generator-form">
 
-  <section class="generator-card" id="generator-card">
-
-    <form id="generate-form" class="generator-form">
-      <div class="field">
-        <label for="business_name">Bedrijfsnaam</label>
-        <input type="text" id="business_name" name="business_name" placeholder="bijv. Suriname Kitchen" required>
+    <!-- ============== VIEW 1: landing — the ONE action is "upload", everything
+         else lives in the funnel that starts the moment a file lands here. ============== -->
+    <section class="view landing-card" id="view-landing" data-view="landing">
+      <div class="landing-copy">
+        <h1>Upload je beelden.<br>Krijg direct je advertentie.</h1>
+        <p class="lead">ADmazing maakt automatisch een promotievideo van jouw foto's en clips — inclusief montage, tekst, muziek en call-to-action.</p>
+        <p class="fine">Geen montage-ervaring nodig. Geen ingewikkelde software. Geen wachttijd.</p>
       </div>
 
-      <div class="field">
-        <label for="offer">Aanbieding / boodschap</label>
-        <input type="text" id="offer" name="offer" placeholder="bijv. Surinaamse smaken in hartje Almere">
-      </div>
+      <div class="landing-action">
+        <h2>Begin hier</h2>
+        <p class="landing-action-sub">Sleep je eerste foto's en video's hierin — zodra je upload, gaan we direct verder.</p>
 
-      <div class="field">
-        <label for="cta_text">Wat moet de klant doen?</label>
-        <input type="text" id="cta_text" name="cta_text" placeholder="bijv. Bestel vandaag">
-      </div>
-
-      <div class="field" id="usp-field">
-        <label for="usp">USP</label>
-        <input type="text" id="usp" name="usp" placeholder="bijv. Binnen 30 minuten bezorgd">
-      </div>
-
-      <div class="field">
-        <label>Sleep hier je foto's en video's</label>
-        <p class="field-note field-note-strong">Je eerste upload is de hook van je advertentie — dit beeld moet de aandacht van de kijker direct grijpen. Upload dus je sterkste beeld of video als eerste.</p>
-        <p class="field-note" id="duration-note">Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.</p>
         <div class="dropzone" id="dropzone" tabindex="0">
-          <div class="dropzone-hint" id="dropzone-hint">Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span></div>
+          <div class="dropzone-hint" id="dropzone-hint">
+            <span class="dropzone-icon" aria-hidden="true">+</span>
+            Sleep bestanden hierheen, of <span class="dropzone-browse">klik om te bladeren</span>
+          </div>
           <div class="media-grid" id="media-grid"></div>
         </div>
         <input type="file" id="footage-input" name="footage" multiple accept="video/*,image/*" hidden>
+
+        <p class="field-note field-note-strong">Je eerste upload is de hook van je advertentie — dit beeld moet de aandacht van de kijker direct grijpen. Upload dus je sterkste beeld of video als eerste.</p>
+        <p class="field-note" id="duration-note">Elke foto of video blijft ongeveer 4 seconden in beeld in de uiteindelijke advertentie.</p>
+
+        <button type="button" class="generate-btn landing-continue-btn" id="landing-continue-btn" hidden>Verder →</button>
+      </div>
+    </section>
+
+    <!-- "How it works" teaser band — same shape as the dashed card above, mirrors
+         the funnel-concept doc's 4-stap uitleg, pure visual reassurance, no inputs. -->
+    <section class="howitworks-band" id="howitworks-band" aria-hidden="true">
+      <div class="howitworks-step"><span class="howitworks-num">01</span>Upload je beelden</div>
+      <div class="howitworks-step"><span class="howitworks-num">02</span>Vertel ons wat je verkoopt</div>
+      <div class="howitworks-step"><span class="howitworks-num">03</span>ADmazing monteert</div>
+      <div class="howitworks-step"><span class="howitworks-num">04</span>Download &amp; deel</div>
+    </section>
+
+    <!-- ============== VIEW 2: the funnel itself — one panel visible at a time,
+         starts automatically as soon as the landing dropzone gets its first file. ============== -->
+    <section class="view funnel-card" id="view-funnel" data-view="funnel" hidden>
+
+      <div class="funnel-head">
+        <button type="button" class="funnel-back" id="funnel-back" aria-label="Vorige stap">←</button>
+        <div class="funnel-dots" id="funnel-dots" role="list" aria-label="Stappen">
+          <span class="funnel-dot" data-step="1"></span>
+          <span class="funnel-dot" data-step="2"></span>
+          <span class="funnel-dot" data-step="3"></span>
+        </div>
+        <button type="button" class="funnel-media-chip" id="funnel-media-chip">
+          <span id="funnel-media-chip-count">0 bestanden</span> · wijzigen
+        </button>
       </div>
 
-      <div class="field">
-        <label for="logo-input">Logo (optioneel)</label>
-        <input type="file" id="logo-input" name="logo" accept="image/png,image/jpeg">
-      </div>
+      <!-- Panel 1: who/what -->
+      <div class="funnel-panel" data-panel="1">
+        <h2>Over je bedrijf</h2>
 
-      <div class="field">
-        <label>Stijl</label>
-        <div class="style-choices" role="radiogroup" aria-label="Stijl">
-          {% for key, label, description, font_file in styles %}
-          <label class="style-choice">
-            <input type="radio" name="style" value="{{ key }}" {% if key == default_style_key %}checked{% endif %}>
-            <span class="style-choice-preview" style="font-family: '{{ font_css_family(font_file) }}', sans-serif;">Aa</span>
-            <span class="style-choice-title">{{ label }}</span>
-            <span class="style-choice-desc">{{ description }}</span>
-          </label>
-          {% endfor %}
+        <div class="field">
+          <label for="business_name">Bedrijfsnaam</label>
+          <input type="text" id="business_name" name="business_name" placeholder="bijv. Suriname Kitchen" required>
+        </div>
+
+        <div class="field">
+          <label for="offer">Aanbieding / boodschap</label>
+          <input type="text" id="offer" name="offer" placeholder="bijv. Surinaamse smaken in hartje Almere">
+        </div>
+
+        <div class="field">
+          <label for="cta_text">Wat moet de klant doen?</label>
+          <input type="text" id="cta_text" name="cta_text" placeholder="bijv. Bestel vandaag">
+        </div>
+
+        <div class="field" id="usp-field">
+          <label for="usp">USP</label>
+          <input type="text" id="usp" name="usp" placeholder="bijv. Binnen 30 minuten bezorgd">
+        </div>
+
+        <div class="funnel-nav">
+          <button type="button" class="generate-btn funnel-next" data-goto="2">Volgende →</button>
         </div>
       </div>
 
-      <div class="field-row">
+      <!-- Panel 2: look & feel -->
+      <div class="funnel-panel" data-panel="2" hidden>
+        <h2>Stijl &amp; kleur</h2>
+
         <div class="field">
-          <label for="template">Edit stijl</label>
-          <select id="template" name="template">
-            {% for t in templates %}
-            <option value="{{ t }}" {% if t == default_template %}selected{% endif %}>{{ t }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="field">
-          <label>Formaat</label>
-          <div class="format-choices" role="radiogroup" aria-label="Video formaat">
-            {% for f in formats %}
-            <label class="format-choice">
-              <input type="radio" name="format" value="{{ f }}" {% if loop.first %}checked{% endif %}>
-              <span class="format-icon format-icon-{{ f|replace(':','-') }}" aria-hidden="true"></span>
-              <span class="format-text">{{ f }}</span>
+          <label>Stijl</label>
+          <div class="style-choices" role="radiogroup" aria-label="Stijl">
+            {% for key, label, description, font_file in styles %}
+            <label class="style-choice">
+              <input type="radio" name="style" value="{{ key }}" {% if key == default_style_key %}checked{% endif %}>
+              <span class="style-choice-preview" style="font-family: '{{ font_css_family(font_file) }}', sans-serif;">Aa</span>
+              <span class="style-choice-title">{{ label }}</span>
+              <span class="style-choice-desc">{{ description }}</span>
             </label>
             {% endfor %}
           </div>
         </div>
+
         <div class="field">
-          <label for="music">Muziek</label>
-          <select id="music" name="music">
-            {% for genre_label, tracks in music_groups %}
-            <optgroup label="{{ genre_label }}">
-              {% for key, track_label in tracks %}
-              <option value="{{ key }}">{{ track_label }}</option>
-              {% endfor %}
-            </optgroup>
-            {% endfor %}
-          </select>
+          <label for="theme-color-input">Kleur (tekst/motion)</label>
+          <div class="theme-color-row">
+            <input type="color" id="theme-color-input" name="theme_color" value="{{ default_theme_color }}">
+            <span class="theme-color-hint">Style bepaalt de motion, deze kleur bepaalt wat die motion kleurt. Standaard wit.</span>
+          </div>
+        </div>
+
+        <div class="funnel-nav">
+          <button type="button" class="secondary-btn funnel-prev" data-goto="1">← Terug</button>
+          <button type="button" class="generate-btn funnel-next" data-goto="3">Volgende →</button>
         </div>
       </div>
 
-      <button type="submit" class="generate-btn">Genereer mijn advertentie →</button>
-      <p class="form-error" id="form-error"></p>
-    </form>
+      <!-- Panel 3: technical settings + generate -->
+      <div class="funnel-panel" data-panel="3" hidden>
+        <h2>Instellingen &amp; genereren</h2>
 
-    <div class="progress-view" id="progress-view" hidden>
-      <h2>ADmazing maakt je advertentie…</h2>
-      <div class="progress-bar" aria-hidden="true"><div class="progress-bar-fill"></div></div>
-      <ul class="progress-steps" id="progress-steps">
-        <li data-step="0">Beeldmateriaal analyseren</li>
-        <li data-step="1">Beste momenten selecteren</li>
-        <li data-step="2">Advertentietekst schrijven</li>
-        <li data-step="3">Muziek kiezen</li>
-        <li data-step="4">Montage samenstellen</li>
-        <li data-step="5">Video renderen…</li>
-      </ul>
-    </div>
+        <div class="field">
+          <label for="logo-input">Logo (optioneel)</label>
+          <input type="file" id="logo-input" name="logo" accept="image/png,image/jpeg">
+        </div>
 
-    <div class="result-view" id="result-view" hidden>
-      <h2>Je advertentie is klaar.</h2>
-      <video id="result-video" controls playsinline></video>
-      <div class="result-actions">
-        <a id="download-link" class="generate-btn" download>Download MP4</a>
-        <button type="button" class="secondary-btn" id="make-another">Nieuwe advertentie maken</button>
+        <div class="field-row">
+          <div class="field">
+            <label for="template">Edit stijl</label>
+            <select id="template" name="template">
+              {% for t in templates %}
+              <option value="{{ t }}" {% if t == default_template %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Formaat</label>
+            <div class="format-choices" role="radiogroup" aria-label="Video formaat">
+              {% for f in formats %}
+              <label class="format-choice">
+                <input type="radio" name="format" value="{{ f }}" {% if loop.first %}checked{% endif %}>
+                <span class="format-icon format-icon-{{ f|replace(':','-') }}" aria-hidden="true"></span>
+                <span class="format-text">{{ f }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="field">
+            <label for="music">Muziek</label>
+            <select id="music" name="music">
+              {% for genre_label, tracks in music_groups %}
+              <optgroup label="{{ genre_label }}">
+                {% for key, track_label in tracks %}
+                <option value="{{ key }}">{{ track_label }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="funnel-nav">
+          <button type="button" class="secondary-btn funnel-prev" data-goto="2">← Terug</button>
+          <button type="submit" class="generate-btn">Genereer mijn advertentie →</button>
+        </div>
+        <p class="form-error" id="form-error"></p>
       </div>
-    </div>
 
-  </section>
+    </section>
+
+  </form>
+
+  <div class="progress-view app-card" id="progress-view" hidden>
+    <h2>ADmazing maakt je advertentie…</h2>
+    <div class="progress-bar" aria-hidden="true"><div class="progress-bar-fill"></div></div>
+    <ul class="progress-steps" id="progress-steps">
+      <li data-step="0">Beeldmateriaal analyseren</li>
+      <li data-step="1">Beste momenten selecteren</li>
+      <li data-step="2">Advertentietekst schrijven</li>
+      <li data-step="3">Muziek kiezen</li>
+      <li data-step="4">Montage samenstellen</li>
+      <li data-step="5">Video renderen…</li>
+    </ul>
+  </div>
+
+  <div class="result-view app-card" id="result-view" hidden>
+    <h2>Je advertentie is klaar.</h2>
+    <video id="result-video" controls playsinline></video>
+    <div class="result-actions">
+      <a id="download-link" class="generate-btn" download>Download MP4</a>
+      <button type="button" class="secondary-btn" id="make-another">Nieuwe advertentie maken</button>
+    </div>
+  </div>
+
 </main>
 
 <script src="/static/app.js"></script>
